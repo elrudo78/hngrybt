@@ -302,79 +302,104 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                 if task := game.get('hint_task'):
                     if not task.done(): task.cancel()
 
-    # --- Listener for Game Answers ---
+        # --- Listener for Game Answers (First Winner Only Logic) ---
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """Listens for messages to check for game answers."""
-        if message.author == self.bot.user or not message.guild: return
+        """Listens for messages to check for game answers, processing only the first winner."""
+        # --- Basic Filters ---
+        if message.author == self.bot.user: return
+        if not message.guild: return
         channel_id = message.channel.id
-        if channel_id not in self.active_games: return
-        # Ignore commands
-        if message.content.startswith(config.COMMAND_PREFIX): return
 
-        game = self.active_games[channel_id]
-        correct_word = game["word"]
+        # --- Quickly check if a game *might* be active ---
+        # Use .get() for a quick, safe check before potentially heavier logic
+        game_data_snapshot = self.active_games.get(channel_id)
+        if not game_data_snapshot:
+            return # No game active in this channel, exit fast
 
-        # Check for Correct Answer
-        if message.content.strip().upper() == correct_word:
-            time_taken = time.time() - game["start_time"]
+        # --- Ignore commands ---
+        if message.content.startswith(config.COMMAND_PREFIX):
+            return
+
+        # --- Check Answer (using the snapshot) ---
+        correct_word = game_data_snapshot.get("word")
+        # Ensure word exists in snapshot before comparing
+        if not correct_word or message.content.strip().upper() != correct_word:
+            return # Not the correct answer, exit
+
+        # --- Attempt to Claim Win (Atomic Deletion) ---
+        # Now that we know it's the correct word, try to remove the game entry.
+        # If we successfully remove it, we are the FIRST winner.
+        try:
+            # Use pop to atomically get and remove the game data if it still exists.
+            # Pass None as default to avoid KeyError if already deleted by another process.
+            game = self.active_games.pop(channel_id, None)
+
+            if game is None:
+                # The game was already removed (likely by another near-simultaneous winner).
+                log.debug(f"User {message.author} answered correctly for game {channel_id}, but game already ended.")
+                return # This user was too late
+
+            # --- We are the FIRST winner! Process the win ---
+            start_time = game["start_time"] # Get start time from the popped data
+            time_taken = time.time() - start_time
             user_id = str(message.author.id)
             user_name = message.author.display_name
-            log.info(
-                f"Correct answer '{message.content}' by {user_name}({user_id}) in {channel_id} after {time_taken:.2f}s"
-            )
+            log.info(f"FIRST WINNER! User: {user_name}({user_id}) in {channel_id}. Time: {time_taken:.2f}s")
 
+            # --- Cancel Background Tasks (using popped game data) ---
+            tasks_to_cancel = [game.get('timeout_task'), game.get('hint_task')]
+            for task in tasks_to_cancel:
+                 if task and not task.done():
+                      try: task.cancel()
+                      except Exception as e: log.error(f"Error cancelling task for winner {user_id}: {e}")
+
+            # --- Calculate Points & Update Score (Single DB Write) ---
             points_earned = 0
-            # Score based on time (adjust tiers for 60s)
-            if time_taken <= config.TIME_LIMIT_SECONDS:
-                if time_taken <= 10: points_earned = 100
-                elif time_taken <= 20: points_earned = 85
-                elif time_taken <= 30: points_earned = 70
-                elif time_taken <= 40: points_earned = 55
-                elif time_taken <= 50: points_earned = 40
+            if time_taken <= config.TIME_LIMIT_SECONDS: # Check if within time limit
+                # Adjust scoring tiers for 60 seconds as needed
+                if time_taken <= 5: points_earned = 100
+                elif time_taken <= 15: points_earned = 75
+                elif time_taken <= 30: points_earned = 50
                 else: points_earned = 25
 
                 new_total_score = 0
                 if self.db_cog:
-                    new_total_score = await self.db_cog.update_score(
-                        message.author.id, points_earned)
+                     new_total_score = await self.db_cog.update_score(message.author.id, points_earned)
+                     log.info(f"Score updated for winner {user_id} to {new_total_score}.")
                 else:
-                    log.error(
-                        f"DB Cog missing, score not updated for {user_id}")
+                     log.error(f"DB Cog missing, score not updated for winner {user_id}")
 
-                win_message = (
-                    f"You unscrambled **{correct_word}** in **{time_taken:.2f}**s!\nYou earned **{points_earned}** points."
-                )
-                win_embed = discord.Embed(title=f"🎉 Correct, {user_name}! 🎉",
-                                          description=win_message,
-                                          color=config.EMBED_COLOR_SUCCESS)
-                if self.db_cog:
-                    win_embed.add_field(name="Your Total Score",
-                                        value=f"**{new_total_score}** points")
-                else:
-                    win_embed.set_footer(text="Score save error.")
-                await message.channel.send(embed=win_embed)
+                # --- Send Win Message ---
+                win_message = (f"You unscrambled **{correct_word}** in **{time_taken:.2f}**s!\nYou earned **{points_earned}** points.")
+                win_embed = discord.Embed(title=f"🎉 Correct, {user_name}! 🎉", description=win_message, color=config.EMBED_COLOR_SUCCESS)
+                if self.db_cog: win_embed.add_field(name="Your Total Score", value=f"**{new_total_score}** points")
+                else: win_embed.set_footer(text="Score save error.")
 
-            else:  # Correct but too late
-                embed = discord.Embed(
-                    title="⏰ Too Slow!",
-                    description=
-                    f"Yes, {user_name}, it was **{correct_word}**!\nBut you took **{time_taken:.2f}s** (limit {config.TIME_LIMIT_SECONDS}s).\nNo points! 💨",
-                    color=config.EMBED_COLOR_WARNING)
-                await message.channel.send(embed=embed)
+                try:
+                    await message.channel.send(embed=win_embed)
+                except Exception as e:
+                     log.exception(f"Failed to send win message for {user_id}: {e}")
 
-            # --- Game End Logic (Win or Too Slow) ---
-            tasks_to_cancel = [game.get('timeout_task'), game.get('hint_task')]
-            for task in tasks_to_cancel:
-                if task and not task.done():
-                    try:
-                        task.cancel()
-                    except Exception as e:
-                        log.error(f"Error cancelling task on game end: {e}")
-            del self.active_games[channel_id]
-            log.info(f"Game {channel_id} ended. Cleanup done.")
+            else: # Correct word, but time limit exceeded (Should technically be handled by timeout task first)
+                # This block might be less likely to be hit if the timeout task is reliable,
+                # but keep it as a fallback for answers arriving exactly as timeout occurs.
+                log.info(f"User {user_name}({user_id}) answered correctly for {channel_id} BUT time was up ({time_taken:.2f}s).")
+                embed = discord.Embed(title="⏰ Too Slow!", description=f"Yes, {user_name}, it was **{correct_word}**!\nBut time was already up ({time_taken:.2f}s > {config.TIME_LIMIT_SECONDS}s).\nNo points! 💨", color=config.EMBED_COLOR_WARNING)
+                try:
+                    await message.channel.send(embed=embed)
+                except Exception as e:
+                     log.exception(f"Failed to send 'too slow' message for {user_id}: {e}")
 
-        # Timeout is handled by the task
+            # --- Game cleanup (task cancellation, del self.active_games) already done ---
+            log.info(f"Game {channel_id} processing complete for winner {user_id}.")
+
+
+        except Exception as e:
+            # Catch any unexpected errors during the win processing itself
+            log.exception(f"Unexpected error processing potential win in {channel_id} by {message.author}: {e}")
+            # We might have popped the game state but failed before finishing.
+            # State is already removed, so just log the error. Maybe inform admin?
 
 
 # Required setup function for the cog
