@@ -42,6 +42,9 @@ class DatabaseCog(commands.Cog, name="Database"):
             # but manual commit gives more control. Let's use manual commit.
             self.conn = await aiosqlite.connect(self.db_path)
             log.info("Database connection established.")
+        # Enable WAL mode immediately after connecting (best practice)
+            await self.conn.execute("PRAGMA journal_mode=WAL;")
+            log.info("SQLite journal mode set to WAL.")
 
             # Create leaderboard table if it doesn't exist
             await self.conn.execute("""
@@ -50,6 +53,8 @@ class DatabaseCog(commands.Cog, name="Database"):
                     score INTEGER NOT NULL DEFAULT 0
                 )
             """)
+            await self.conn.commit() # Commit PRAGMA and table creation
+            log.info("Checked/Created 'leaderboard' table.") # Keep original log too
             await self.conn.commit()
             log.info("Checked/Created 'leaderboard' table.")
 
