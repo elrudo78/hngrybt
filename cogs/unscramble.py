@@ -358,9 +358,11 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
             points_earned = 0
             if time_taken <= config.TIME_LIMIT_SECONDS: # Check if within time limit
                 # Adjust scoring tiers for 60 seconds as needed
-                if time_taken <= 5: points_earned = 100
-                elif time_taken <= 15: points_earned = 75
-                elif time_taken <= 30: points_earned = 50
+                if time_taken <= 10: points_earned = 100
+                elif time_taken <= 20: points_earned = 85
+                elif time_taken <= 30: points_earned = 70
+                elif time_taken <= 40: points_earned = 55
+                elif time_taken <= 50: points_earned = 40
                 else: points_earned = 25
 
                 new_total_score = 0
