@@ -8,6 +8,8 @@ import logging
 import asyncio
 import traceback
 import config # Import our configuration file
+import uvloop
+import platform
 # No 'from replit import db' needed anymore
 
 # --- Logging Setup ---
@@ -140,4 +142,16 @@ def run_bot():
 
 # --- Script Entry Point ---
 if __name__ == "__main__":
+    # Install uvloop automatically replaces the default asyncio event loop policy
+    # It's generally recommended to do this early, before the loop starts.
+    # Only install on Linux/macOS typically, but harmless on Windows (won't be used)
+    # if platform.system() != "Windows": # Optional check if you might run on Windows
+    try:
+        main_log.info("Attempting to install uvloop...")
+        uvloop.install()
+        main_log.info("uvloop installed successfully.")
+    except Exception as e:
+        main_log.warning(f"Could not install uvloop, using default asyncio loop: {e}")
+
+    # Now run the bot as before
     run_bot()
