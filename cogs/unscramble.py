@@ -264,7 +264,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                 if loop_data["current_round"] < loop_data["target_rounds"] and loop_data["consecutive_timeouts"] < 2:
                     try:
                         log.debug(f"[Loop {channel_id}] Sending next round toast.")
-                        await ctx.send(embed=discord.Embed(description="⏭️ Next round starting...", color=config.EMBED_COLOR_INFO), delete_after=4.0) # Keep 4s duration
+                        await ctx.send(embed=discord.Embed(description="⏭️ Next round starting...", color=config.EMBED_COLOR_INFO), delete_after=5.5)
                     except Exception as e:
                         log.warning(f"[Loop {channel_id}] Failed sending toast message: {e}")
                 # else: Don't send toast if loop is about to end
