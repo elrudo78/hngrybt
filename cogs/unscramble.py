@@ -1,363 +1,362 @@
 # cogs/unscramble.py
-# Contains the logic and commands for the Unscramble game with auto-hints.
-# VERSION FOR SINGLE WORDLIST FILE
+# Game logic for auto-running Unscramble loop with auto-hints.
 
 import discord
 from discord.ext import commands
 import random
 import time
-import asyncio  # For sleep and task management
+import asyncio
 import logging
-import config  # Import shared configuration
-from .database import DatabaseCog  # Import the Database Cog
+import config
+from .database import DatabaseCog
 
 log = logging.getLogger(__name__)
 
-
 class UnscrambleCog(commands.Cog, name="Unscramble"):
-    """Commands and logic for the Unscramble game with automatic hints"""
+    """Auto-running Unscramble game loop with automatic hints"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.active_games = {}  # { channel_id: game_data_dict }
-        # --- Store words from the single file ---
+        # --- State for active game loops per channel ---
+        self.active_loops = {}
+        # --- Load single word list ---
         self.word_list = []
-        # --- END ---
         self.db_cog: DatabaseCog = self.bot.get_cog("Database")
 
-        if not self.db_cog:
-            log.error(
-                "!!! Database Cog not found. Unscramble game might not save scores correctly! !!!"
-            )
-
-        self._load_words()  # Call the single list loading function
+        if not self.db_cog: log.error("!!! Database Cog not found! Scores may not save. !!!")
+        self._load_words()
         log.info("Unscramble Cog initialized.")
 
-    # --- Word Loading (Single File Logic) ---
     def _load_words(self):
         """Loads words from the single configured file."""
         log.info(f"Loading words from '{config.WORDS_FILENAME}'...")
         try:
-            # Use utf-8 encoding
             with open(config.WORDS_FILENAME, "r", encoding='utf-8') as f:
-                self.word_list = [
-                    line.strip().upper() for line in f if line.strip()
-                ]
+                self.word_list = [line.strip().upper() for line in f if line.strip()]
             if not self.word_list:
-                log.warning(
-                    f"Word file '{config.WORDS_FILENAME}' is empty. Using default."
-                )
+                log.warning(f"Word file '{config.WORDS_FILENAME}' is empty. Using default.")
                 self.word_list = ["DEFAULT"]
-            log.info(
-                f"Successfully loaded {len(self.word_list)} words from '{config.WORDS_FILENAME}'."
-            )
+            log.info(f"Loaded {len(self.word_list)} words from '{config.WORDS_FILENAME}'.")
         except FileNotFoundError:
-            log.error(
-                f"Word file '{config.WORDS_FILENAME}' not found! Using default word."
-            )
+            log.error(f"Word file '{config.WORDS_FILENAME}' not found! Using default.")
             self.word_list = ["DEFAULT"]
         except Exception as e:
-            log.exception(
-                f"Failed to load words from '{config.WORDS_FILENAME}': {e}. Using default."
-            )
+            log.exception(f"Failed loading words from '{config.WORDS_FILENAME}': {e}")
             self.word_list = ["DEFAULT"]
 
-    # --- Hint String Creation (Remains the same) ---
     def _create_hint_string(self, word, revealed_indices):
-        """Creates the hint string with underscores for hidden letters."""
+        """Creates the hint string like W O R _"""
         hint_display = []
         for i, letter in enumerate(word):
-            if i in revealed_indices:
-                hint_display.append(f"**{letter}**")
-            else:
-                hint_display.append("＿")  # Fullwidth underscore
+            if i in revealed_indices: hint_display.append(f"**{letter}**")
+            else: hint_display.append("＿") # Fullwidth underscore U+FF3F
         return " ".join(hint_display)
 
-    # --- Game Timeout Task (Remains the same) ---
-    async def _game_timeout_task(self, channel: discord.TextChannel,
-                                 channel_id: int, game_start_time: float,
-                                 correct_word: str):
-        """Background task to handle automatic game timeout."""
+    async def _game_timeout_task(self, channel: discord.TextChannel, channel_id: int, round_start_time: float, correct_word: str, loop_data: dict):
+        """Background task for per-round timeout. Updates loop state."""
         try:
             await asyncio.sleep(config.TIME_LIMIT_SECONDS)
-            current_game_data = self.active_games.get(channel_id)
-            if current_game_data and current_game_data[
-                    'start_time'] == game_start_time:
-                log.info(
-                    f"[Timeout Task] Game in channel {channel_id} timed out. Word was {correct_word}."
-                )
-                embed = discord.Embed(
-                    title="⏱️ Time's Up!",
-                    description=f"Aww, time ran out! Nobody guessed the word.\n"
-                    f"The word was **{correct_word}**.\n\n"
-                    f"Start a new game with `{config.COMMAND_PREFIX}unscramble`!",
-                    color=config.EMBED_COLOR_ERROR)
+
+            active_loop_data = self.active_loops.get(channel_id)
+            if not active_loop_data: return
+
+            # Use pop to safely get details for the specific round this task belongs to
+            current_round_details = active_loop_data.get("current_round_details")
+            if not current_round_details or current_round_details['start_time'] != round_start_time:
+                log.debug(f"[Timeout Task {channel_id}] Round ended or changed before timeout.")
+                return
+
+            # --- Process Timeout ---
+            current_r = active_loop_data['current_round']
+            log.info(f"[Timeout Task {channel_id}] Round {current_r} timed out. Word: {correct_word}.")
+
+            active_loop_data["consecutive_timeouts"] += 1
+            active_loop_data["round_status"] = "TIMEOUT"
+
+            timeout_embed = discord.Embed(
+                title=f"⏱️ Time's Up! (Round {current_r})",
+                description=f"Nobody guessed the word!\nThe word was **{correct_word}**.",
+                color=config.EMBED_COLOR_ERROR
+            )
+
+            # --- Attempt Embed Recycling ---
+            edited_message = False
+            last_msg_id = active_loop_data.get("last_round_message_id")
+            if last_msg_id:
                 try:
-                    await channel.send(embed=embed)
-                except Exception as e:
-                    log.exception(f"[Timeout Task] Error sending message: {e}")
+                    msg_to_edit = await channel.fetch_message(last_msg_id)
+                    await msg_to_edit.edit(content=None, embed=timeout_embed, view=None)
+                    active_loop_data["last_round_message_id"] = msg_to_edit.id # Keep same ID
+                    edited_message = True
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException) as e:
+                    log.warning(f"[Timeout Task {channel_id}] Failed edit message {last_msg_id}: {e}. Sending new.")
 
-                # Clean up - Also cancel hint task if it's still running
-                if 'hint_task' in current_game_data and current_game_data[
-                        'hint_task'] and not current_game_data[
-                            'hint_task'].done():
-                    current_game_data['hint_task'].cancel()
-                del self.active_games[channel_id]
-                log.info(
-                    f"[Timeout Task] Game state for {channel_id} cleared due to timeout."
-                )
-            else:
-                log.debug(
-                    f"[Timeout Task] Game {channel_id} ended/changed. Task finished."
-                )
-        except asyncio.CancelledError:
-            log.debug(f"[Timeout Task] {channel_id} cancelled.")
-        except Exception as e:
-            log.exception(f"[Timeout Task] Error {channel_id}: {e}")
+            if not edited_message: # Send new if edit failed or no previous ID
+                 try:
+                      sent_msg = await channel.send(embed=timeout_embed)
+                      active_loop_data["last_round_message_id"] = sent_msg.id # Store new ID
+                 except Exception as e:
+                      log.exception(f"[Timeout Task {channel_id}] Failed sending new timeout message: {e}")
 
-    # --- Hint Scheduler Task (Remains the same logic, just added) ---
-    async def _hint_scheduler_task(self, channel: discord.TextChannel,
-                                   channel_id: int, game_start_time: float,
-                                   correct_word: str, scrambled_word: str):
-        """Runs in background, sleeping and sending scheduled hints."""
+            # Cancel this round's hint task (if it exists in details and is running)
+            hint_task = current_round_details.get("hint_task_ref")
+            if hint_task and not hint_task.done(): hint_task.cancel()
+
+            # Signal the main loop
+            active_loop_data["round_complete_event"].set()
+
+        except asyncio.CancelledError: log.debug(f"[Timeout Task {channel_id}] Cancelled.")
+        except Exception as e: log.exception(f"[Timeout Task {channel_id}] Error: {e}")
+
+    async def _hint_scheduler_task(self, channel: discord.TextChannel, channel_id: int, round_start_time: float, correct_word: str, scrambled_word: str, loop_data: dict):
+        """Runs in background, sending hints for the current round."""
         last_hint_time = 0
         hints_shown_count = 0
-        max_hints = max(0, len(correct_word) // 2)
+        max_hints = max(0, len(correct_word) // 2);
         if len(correct_word) > 1 and max_hints == 0: max_hints = 1
 
-        log.debug(
-            f"[Hint Task {channel_id}] Starting. Max hints: {max_hints}. Schedule: {config.HINT_SCHEDULE_SECONDS}"
-        )
+        current_r = loop_data.get("current_round", "?")
+        log.debug(f"[Hint Task {channel_id}-{current_r}] Starting. Max: {max_hints}. Schedule: {config.HINT_SCHEDULE_SECONDS}")
         try:
             for scheduled_time in config.HINT_SCHEDULE_SECONDS:
-                if hints_shown_count >= max_hints:
-                    log.debug(f"[Hint Task {channel_id}] Max hints reached.")
-                    break
+                # Check against current hints_given in shared state, in case it changed
+                active_loop_data = self.active_loops.get(channel_id)
+                if not active_loop_data: break # Loop ended
+                current_round_details = active_loop_data.get("current_round_details")
+                if not current_round_details or current_round_details['start_time'] != round_start_time: break # Round changed
+                if current_round_details['hints_given'] >= max_hints: break # Max hints reached
+
                 sleep_duration = scheduled_time - last_hint_time
                 if sleep_duration <= 0: continue
 
-                log.debug(
-                    f"[Hint Task {channel_id}] Sleeping {sleep_duration}s until hint at {scheduled_time}s."
-                )
                 await asyncio.sleep(sleep_duration)
                 last_hint_time = scheduled_time
 
-                # CRITICAL Check: Is the *exact same* game still active?
-                current_game_data = self.active_games.get(channel_id)
-                if not current_game_data or current_game_data[
-                        'start_time'] != game_start_time:
-                    log.debug(
-                        f"[Hint Task {channel_id}] Game ended/changed. Stopping."
-                    )
-                    break
+                # Re-check game state *after* sleep
+                active_loop_data = self.active_loops.get(channel_id)
+                if not active_loop_data: break
+                current_round_details = active_loop_data.get("current_round_details")
+                if not current_round_details or current_round_details['start_time'] != round_start_time: break
+                if current_round_details['hints_given'] >= max_hints: break
 
-                hints_shown_count += 1
-                log.info(
-                    f"[Hint Task {channel_id}] Triggering hint #{hints_shown_count} at {scheduled_time}s."
-                )
+                hints_shown_count = current_round_details['hints_given'] + 1 # Increment based on shared state
+                log.info(f"[Hint Task {channel_id}-{current_r}] Triggering hint #{hints_shown_count} @ {scheduled_time}s.")
 
-                revealed_indices = current_game_data['revealed_indices']
-                available_indices = [
-                    i for i in range(len(correct_word))
-                    if i not in revealed_indices
-                ]
-                if not available_indices:
-                    log.warning(
-                        f"[Hint Task {channel_id}] No indices for hint #{hints_shown_count}."
-                    )
-                    break
+                revealed_indices = current_round_details['revealed_indices']
+                available_indices = [i for i in range(len(correct_word)) if i not in revealed_indices]
+                if not available_indices: break
 
                 index_to_reveal = random.choice(available_indices)
-                revealed_indices.add(index_to_reveal)
-                hint_display_string = self._create_hint_string(
-                    correct_word, revealed_indices)
-                current_game_data['hints_given'] = hints_shown_count
+                revealed_indices.add(index_to_reveal) # Update shared set
+                current_round_details['hints_given'] = hints_shown_count # Update shared counter
 
-                embed = discord.Embed(
-                    title=f"💡 Hint #{hints_shown_count}",
-                    description=
-                    (f"Stuck on **{scrambled_word}**?\n\n# {hint_display_string}"
-                     ),
-                    color=config.EMBED_COLOR_HINT)
-                try:
-                    await channel.send(embed=embed)
-                except Exception as e:
-                    log.exception(
-                        f"[Hint Task {channel_id}] Failed send hint: {e}")
+                hint_display_string = self._create_hint_string(correct_word, revealed_indices)
+                embed = discord.Embed(title=f"💡 Hint #{hints_shown_count}", description=f"Stuck on **{scrambled_word}**?\n\n# {hint_display_string}", color=config.EMBED_COLOR_HINT)
+                try: await channel.send(embed=embed) # Send hints as new messages
+                except Exception as e: log.exception(f"[Hint Task {channel_id}-{current_r}] Failed send hint: {e}")
 
-            log.debug(f"[Hint Task {channel_id}] Hint schedule finished.")
-        except asyncio.CancelledError:
-            log.debug(f"[Hint Task {channel_id}] cancelled.")
-        except Exception as e:
-            log.exception(f"[Hint Task {channel_id}] Error: {e}")
+            log.debug(f"[Hint Task {channel_id}-{current_r}] Hint schedule finished.")
+        except asyncio.CancelledError: log.debug(f"[Hint Task {channel_id}-{current_r}] Cancelled.")
+        except Exception as e: log.exception(f"[Hint Task {channel_id}-{current_r}] Error: {e}")
 
-    # --- Game Command (Simplified for single wordlist) ---
     @commands.command(name='unscramble', aliases=['us'])
     @commands.has_role(config.MOD_ROLE_NAME)
     @commands.guild_only()
-    async def unscramble(self,
-                         ctx: commands.Context):  # Removed category argument
-        """Starts a new Unscramble game."""  # Simplified docstring
+    async def unscramble(self, ctx: commands.Context, rounds: str = None):
+        """Starts an auto-running Unscramble loop [num_rounds]. Runs infinitely if no number given."""
         channel_id = ctx.channel.id
 
-        # --- Check Word List ---
-        if not self.word_list:  # Check if list loaded properly
-            log.error("Word list is empty. Cannot start game.")
-            embed = discord.Embed(
-                description="❌ Error: The word list failed to load.",
-                color=config.EMBED_COLOR_ERROR)
-            await ctx.send(embed=embed)
+        if channel_id in self.active_loops:
+            await ctx.send(embed=discord.Embed(title="⏳ Loop Already Running", description="Game loop already active.", color=config.EMBED_COLOR_WARNING))
             return
 
-        # --- Check for Existing/Stuck Game ---
-        if channel_id in self.active_games:
-            game_start_time = self.active_games[channel_id]['start_time']
-            if time.time(
-            ) - game_start_time > config.STUCK_GAME_TIMEOUT_SECONDS:
-                log.warning(f"Clearing stuck game in channel {channel_id}.")
-                embed = discord.Embed(
-                    description=f"🧹 Previous game stuck. Starting new!",
-                    color=config.EMBED_COLOR_WARNING)
-                await ctx.send(embed=embed)
-                old_game_data = self.active_games.get(channel_id)
-                # Cancel tasks for stuck game
-                if old_game_data:
-                    if game_task := old_game_data.get(
-                            'timeout_task'
-                    ):  # Python 3.8+ assignment expression
-                        if not game_task.done(): game_task.cancel()
-                    if game_task := old_game_data.get('hint_task'):
-                        if not game_task.done(): game_task.cancel()
-                del self.active_games[channel_id]
-            else:  # Game active
-                embed = discord.Embed(
-                    title="⏳ Game in Progress!",
-                    description=
-                    f"Guess: **{self.active_games[channel_id]['scrambled']}**",
-                    color=config.EMBED_COLOR_WARNING)
-                await ctx.send(embed=embed)
+        target_rounds = float('inf'); is_infinite = True
+        if rounds is not None:
+            try:
+                num_rounds = int(rounds); assert num_rounds > 0
+                target_rounds = num_rounds; is_infinite = False
+            except (ValueError, AssertionError):
+                await ctx.send(f"Invalid rounds: `{rounds}`. Use positive number or leave blank.")
                 return
 
-        # --- Start New Game ---
+        if not self.word_list:
+             await ctx.send(embed=discord.Embed(description="❌ Error: Word list not loaded.", color=config.EMBED_COLOR_ERROR))
+             return
+
+        loop_data = {
+            "loop_task": None, "target_rounds": target_rounds, "current_round": 0,
+            "consecutive_timeouts": 0, "round_complete_event": asyncio.Event(),
+            "last_round_message_id": None, "round_status": None,
+            "channel_id": channel_id, "guild_id": ctx.guild.id
+        }
+
+        log.info(f"Starting game loop: Ch {channel_id}, Rounds {'inf' if is_infinite else target_rounds}, By {ctx.author}")
+        game_loop_task = self.bot.loop.create_task(
+            self._channel_game_loop(ctx, loop_data), name=f"GameLoop-{channel_id}"
+        )
+        loop_data["loop_task"] = game_loop_task
+        self.active_loops[channel_id] = loop_data
+
+        start_msg = f"✅ Unscramble auto-game started for **{'infinite' if is_infinite else target_rounds}** rounds!"
+        await ctx.send(embed=discord.Embed(description=start_msg, color=config.EMBED_COLOR_SUCCESS))
+
+    async def _channel_game_loop(self, ctx: commands.Context, loop_data: dict):
+        """Main async task managing the auto-running game loop for a channel."""
+        channel_id = loop_data["channel_id"]
+        round_delay = 3.0
+        round_timeout_task = None # Define here for finally block
+        round_hint_task = None
+
         try:
-            original_word = random.choice(
-                self.word_list)  # Use the single list
-            scrambled_word = original_word
-            if len(original_word) > 1:
-                word_letters = list(original_word)
-                retry_count = 0
-                while scrambled_word == original_word and retry_count < 5:
-                    random.shuffle(word_letters)
-                    scrambled_word = "".join(word_letters)
-                    retry_count += 1
+            while True:
+                loop_data["current_round"] += 1
+                current_r = loop_data["current_round"]
+                target_r = loop_data["target_rounds"]
+                timeouts = loop_data["consecutive_timeouts"]
+                log.info(f"[Loop {channel_id}] Starting Round {current_r} (Target: {target_r}, Timeouts: {timeouts})")
 
-            current_time = time.time()
-            game_data = {
-                "word": original_word,
-                "scrambled": scrambled_word,
-                "start_time": current_time,
-                "hints_given": 0,
-                "revealed_indices": set(),
-                "timeout_task": None,
-                "hint_task": None
-            }
-            self.active_games[channel_id] = game_data
+                if current_r > target_r:
+                    log.info(f"[Loop {channel_id}] Target rounds reached.")
+                    await ctx.send(embed=discord.Embed(description=f"🏁 Game finished after {int(target_r)} rounds!", color=config.EMBED_COLOR_INFO))
+                    break
 
-            # --- Send Start Message ---
-            embed_desc = (
-                f"Alright {ctx.author.mention}, unscramble this word:\n\n"  # Removed category mention
-                f"# **{scrambled_word}**\n\n"
-                f"You have **{config.TIME_LIMIT_SECONDS} seconds!** Type your answer.\n"
-                f"Hints will appear automatically!")
-            embed = discord.Embed(
-                title="🧩 New Unscramble Challenge!",  # Simplified title
-                description=embed_desc,
-                color=config.EMBED_COLOR_DEFAULT)
-            await ctx.send(embed=embed)
-            log.info(
-                f"Game started in {channel_id} by {ctx.author}. Word: '{original_word}'"
-            )
+                if timeouts >= 2:
+                    log.warning(f"[Loop {channel_id}] Stopping loop: {timeouts} consecutive timeouts.")
+                    await ctx.send(embed=discord.Embed(description=f"😴 Stopping game: {timeouts} rounds timed out.", color=config.EMBED_COLOR_WARNING))
+                    break
 
-            # --- Start Background Tasks ---
-            game_data['timeout_task'] = asyncio.create_task(
-                self._game_timeout_task(ctx.channel, channel_id, current_time,
-                                        original_word),
-                name=f"UnscrambleTimeout-{channel_id}")
-            game_data['hint_task'] = asyncio.create_task(
-                self._hint_scheduler_task(ctx.channel, channel_id,
-                                          current_time, original_word,
-                                          scrambled_word),
-                name=f"HintScheduler-{channel_id}")
-            log.debug(f"Timeout and Hint tasks created for {channel_id}")
+                loop_data["round_complete_event"].clear()
+                loop_data["round_status"] = None
+                round_timeout_task = None # Reset task vars for this round
+                round_hint_task = None
 
-        except Exception as e:
-            log.exception(f"Error in !unscramble: {e}")
-            embed = discord.Embed(description="❌ Oops! Error starting game.",
-                                  color=config.EMBED_COLOR_ERROR)
-            await ctx.send(embed=embed)
-            if channel_id in self.active_games:  # Cleanup if partially created
-                game = self.active_games.pop(channel_id)
-                if task := game.get('timeout_task'):  # Python 3.8+
-                    if not task.done(): task.cancel()
-                if task := game.get('hint_task'):
-                    if not task.done(): task.cancel()
+                # --- Run One Round ---
+                try:
+                    original_word = random.choice(self.word_list)
+                    scrambled_word = original_word
+                    if len(original_word) > 1:
+                        word_letters=list(original_word); random.shuffle(word_letters); scrambled_word="".join(word_letters)
 
-        # --- Listener for Game Answers (First Winner Only Logic) ---
+                    current_round_details = {
+                         "word": original_word, "start_time": time.time(),
+                         "revealed_indices": set(), "hints_given": 0,
+                         "loop_data_ref": loop_data, # Important reference back
+                         "timeout_task_ref": None, "hint_task_ref": None
+                    }
+                    loop_data["current_round_details"] = current_round_details # Attach to loop
+
+                    round_title = f"🧩 Round {current_r}" + (f"/{int(target_r)}" if target_r != float('inf') else "")
+                    round_desc = f"Unscramble this word:\n\n# **{scrambled_word}**\n\n*Time: {config.TIME_LIMIT_SECONDS}s. Auto-hints.*"
+                    round_embed = discord.Embed(title=round_title, description=round_desc, color=config.EMBED_COLOR_DEFAULT)
+                    if target_r != float('inf'): round_embed.set_footer(text=f"Progress: {current_r}/{int(target_r)}")
+
+                    # --- Embed Recycling Attempt ---
+                    sent_message = None
+                    last_msg_id = loop_data.get("last_round_message_id")
+                    next_round_toast = discord.Embed(description="⏭️ Next round starting...", color=config.EMBED_COLOR_INFO)
+                    if last_msg_id:
+                        try:
+                            msg_to_edit = await ctx.channel.fetch_message(last_msg_id)
+                            await msg_to_edit.edit(content=None, embed=next_round_toast, view=None)
+                            await asyncio.sleep(1.5)
+                            await msg_to_edit.edit(embed=round_embed)
+                            sent_message = msg_to_edit
+                        except Exception as e:
+                            log.warning(f"[Loop {channel_id}] Edit fail {last_msg_id}: {e}. Sending new.")
+                            sent_message = await ctx.send(embed=round_embed)
+                    else: sent_message = await ctx.send(embed=round_embed)
+                    if sent_message: loop_data["last_round_message_id"] = sent_message.id
+                    # --- End Embed Recycling ---
+
+                    # --- Start Per-Round Tasks & Store Refs ---
+                    current_start_time = current_round_details["start_time"]
+                    round_timeout_task = self.bot.loop.create_task(
+                        self._game_timeout_task(ctx.channel, channel_id, current_start_time, original_word, loop_data),
+                        name=f"Timeout-{channel_id}-{current_r}" )
+                    current_round_details["timeout_task_ref"] = round_timeout_task
+
+                    round_hint_task = self.bot.loop.create_task(
+                        self._hint_scheduler_task(ctx.channel, channel_id, current_start_time, original_word, scrambled_word, loop_data),
+                        name=f"Hints-{channel_id}-{current_r}" )
+                    current_round_details["hint_task_ref"] = round_hint_task
+                    log.debug(f"[Loop {channel_id}] Per-round tasks created for round {current_r}")
+
+                    # --- Wait for Win/Timeout ---
+                    await loop_data["round_complete_event"].wait()
+                    log.debug(f"[Loop {channel_id}] Round {current_r} complete event. Status: {loop_data.get('round_status')}")
+
+                except Exception as round_e:
+                    log.exception(f"[Loop {channel_id}] Error in round {current_r}: {round_e}")
+                    await ctx.send(embed=discord.Embed(title="⚠️ Round Error", description="Trying next round...", color=config.EMBED_COLOR_ERROR))
+                    # Fall through to finally block for cleanup
+
+                finally:
+                    # --- Per-Round Cleanup ---
+                    # Ensure tasks for this specific round are cancelled
+                    if round_timeout_task and not round_timeout_task.done(): round_timeout_task.cancel()
+                    if round_hint_task and not round_hint_task.done(): round_hint_task.cancel()
+                    loop_data.pop("current_round_details", None) # Remove temporary round data
+
+                # --- Post-Round Delay ---
+                await asyncio.sleep(round_delay)
+                # Loop continues...
+
+        except asyncio.CancelledError:
+            log.info(f"[Loop {channel_id}] Game loop task cancelled.")
+            await ctx.send(embed=discord.Embed(description="🛑 Game loop stopped.", color=config.EMBED_COLOR_WARNING))
+        except Exception as loop_e:
+            log.exception(f"[Loop {channel_id}] CRITICAL error in game loop: {loop_e}")
+            await ctx.send(embed=discord.Embed(title="💥 Loop Error", description="Game loop stopped unexpectedly.", color=config.EMBED_COLOR_ERROR))
+        finally:
+            log.info(f"[Loop {channel_id}] Cleaning up loop state.")
+            self.active_loops.pop(channel_id, None) # Remove from active loops dict
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """Listens for messages to check for game answers, processing only the first winner."""
-        # --- Basic Filters ---
-        if message.author == self.bot.user: return
-        if not message.guild: return
+        """Listens for answers and processes the first winner for an active loop."""
+        if message.author == self.bot.user or not message.guild: return
         channel_id = message.channel.id
 
-        # --- Quickly check if a game *might* be active ---
-        # Use .get() for a quick, safe check before potentially heavier logic
-        game_data_snapshot = self.active_games.get(channel_id)
-        if not game_data_snapshot:
-            return # No game active in this channel, exit fast
+        active_loop_data = self.active_loops.get(channel_id)
+        if not active_loop_data: return
 
-        # --- Ignore commands ---
-        if message.content.startswith(config.COMMAND_PREFIX):
-            return
+        current_round_details = active_loop_data.get("current_round_details")
+        if not current_round_details: return # Round transitioning
 
-        # --- Check Answer (using the snapshot) ---
-        correct_word = game_data_snapshot.get("word")
-        # Ensure word exists in snapshot before comparing
-        if not correct_word or message.content.strip().upper() != correct_word:
-            return # Not the correct answer, exit
+        if message.content.startswith(config.COMMAND_PREFIX): return
 
-        # --- Attempt to Claim Win (Atomic Deletion) ---
-        # Now that we know it's the correct word, try to remove the game entry.
-        # If we successfully remove it, we are the FIRST winner.
-        try:
-            # Use pop to atomically get and remove the game data if it still exists.
-            # Pass None as default to avoid KeyError if already deleted by another process.
-            game = self.active_games.pop(channel_id, None)
+        correct_word = current_round_details.get("word")
+        if not correct_word or message.content.strip().upper() != correct_word: return
 
-            if game is None:
-                # The game was already removed (likely by another near-simultaneous winner).
-                log.debug(f"User {message.author} answered correctly for game {channel_id}, but game already ended.")
-                return # This user was too late
-
-            # --- We are the FIRST winner! Process the win ---
-            start_time = game["start_time"] # Get start time from the popped data
+        # --- Correct Answer Received ---
+        # Check if round already completed using the event
+        if not active_loop_data["round_complete_event"].is_set():
+            # --- We are the FIRST winner for this round ---
+            start_time = current_round_details["start_time"]
             time_taken = time.time() - start_time
             user_id = str(message.author.id)
             user_name = message.author.display_name
-            log.info(f"FIRST WINNER! User: {user_name}({user_id}) in {channel_id}. Time: {time_taken:.2f}s")
+            current_r = active_loop_data["current_round"]
+            log.info(f"WINNER! User: {user_name}({user_id}) in {channel_id} round {current_r}. Time: {time_taken:.2f}s")
 
-            # --- Cancel Background Tasks (using popped game data) ---
-            tasks_to_cancel = [game.get('timeout_task'), game.get('hint_task')]
+            # Signal completion FIRST
+            active_loop_data["round_status"] = "WIN"
+            active_loop_data["round_complete_event"].set()
+
+            # Cancel this round's tasks
+            tasks_to_cancel = [current_round_details.get('timeout_task_ref'), current_round_details.get('hint_task_ref')]
             for task in tasks_to_cancel:
                  if task and not task.done():
                       try: task.cancel()
-                      except Exception as e: log.error(f"Error cancelling task for winner {user_id}: {e}")
+                      except Exception as e: log.error(f"Error cancelling task on win r{current_r}: {e}")
 
-            # --- Calculate Points & Update Score (Single DB Write) ---
+            # Reset consecutive timeouts counter
+            active_loop_data["consecutive_timeouts"] = 0
+
+            # --- Calculate Points & Update Score ---
             points_earned = 0
-            if time_taken <= config.TIME_LIMIT_SECONDS: # Check if within time limit
-                # Adjust scoring tiers for 60 seconds as needed
+            if time_taken <= config.TIME_LIMIT_SECONDS:
+                # Adjust scoring tiers for 60s
                 if time_taken <= 10: points_earned = 100
                 elif time_taken <= 20: points_earned = 85
                 elif time_taken <= 30: points_earned = 70
@@ -366,49 +365,46 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                 else: points_earned = 25
 
                 new_total_score = 0
-                if self.db_cog:
-                     new_total_score = await self.db_cog.update_score(message.author.id, points_earned)
-                     log.info(f"Score updated for winner {user_id} to {new_total_score}.")
-                else:
-                     log.error(f"DB Cog missing, score not updated for winner {user_id}")
+                if self.db_cog: new_total_score = await self.db_cog.update_score(message.author.id, points_earned)
+                else: log.error(f"DB Cog missing, score not updated winner {user_id}")
 
-                # --- Send Win Message ---
-                win_message = (f"You unscrambled **{correct_word}** in **{time_taken:.2f}**s!\nYou earned **{points_earned}** points.")
-                win_embed = discord.Embed(title=f"🎉 Correct, {user_name}! 🎉", description=win_message, color=config.EMBED_COLOR_SUCCESS)
+                # --- Send Win Message (Attempt Edit) ---
+                win_message = f"You unscrambled **{correct_word}** in **{time_taken:.2f}**s!\nYou earned **{points_earned}** points."
+                win_embed = discord.Embed(title=f"🎉 Correct, {user_name}! (Round {current_r}) 🎉", description=win_message, color=config.EMBED_COLOR_SUCCESS)
                 if self.db_cog: win_embed.add_field(name="Your Total Score", value=f"**{new_total_score}** points")
                 else: win_embed.set_footer(text="Score save error.")
 
-                try:
-                    await message.channel.send(embed=win_embed)
-                except Exception as e:
-                     log.exception(f"Failed to send win message for {user_id}: {e}")
+                edited_message = False
+                last_msg_id = active_loop_data.get("last_round_message_id")
+                if last_msg_id:
+                    try:
+                        msg_to_edit = await message.channel.fetch_message(last_msg_id)
+                        await msg_to_edit.edit(content=None, embed=win_embed, view=None)
+                        active_loop_data["last_round_message_id"] = msg_to_edit.id # Keep ID
+                        edited_message = True
+                    except Exception as e:
+                        log.warning(f"Failed edit msg {last_msg_id} for win r{current_r}: {e}. Sending new.")
 
-            else: # Correct word, but time limit exceeded (Should technically be handled by timeout task first)
-                # This block might be less likely to be hit if the timeout task is reliable,
-                # but keep it as a fallback for answers arriving exactly as timeout occurs.
-                log.info(f"User {user_name}({user_id}) answered correctly for {channel_id} BUT time was up ({time_taken:.2f}s).")
-                embed = discord.Embed(title="⏰ Too Slow!", description=f"Yes, {user_name}, it was **{correct_word}**!\nBut time was already up ({time_taken:.2f}s > {config.TIME_LIMIT_SECONDS}s).\nNo points! 💨", color=config.EMBED_COLOR_WARNING)
-                try:
-                    await message.channel.send(embed=embed)
-                except Exception as e:
-                     log.exception(f"Failed to send 'too slow' message for {user_id}: {e}")
+                if not edited_message:
+                    try:
+                        sent_msg = await message.channel.send(embed=win_embed)
+                        active_loop_data["last_round_message_id"] = sent_msg.id # Store new ID
+                    except Exception as e:
+                        log.exception(f"Failed sending new win message for {user_id}: {e}")
 
-            # --- Game cleanup (task cancellation, del self.active_games) already done ---
-            log.info(f"Game {channel_id} processing complete for winner {user_id}.")
+            else: # Correct answer but time_taken > limit
+                log.warning(f"User {user_name} correct r{current_r} but too late ({time_taken:.2f}s)")
+                # Timeout task likely already set the event and sent message. No action needed here.
+                pass
 
-
-        except Exception as e:
-            # Catch any unexpected errors during the win processing itself
-            log.exception(f"Unexpected error processing potential win in {channel_id} by {message.author}: {e}")
-            # We might have popped the game state but failed before finishing.
-            # State is already removed, so just log the error. Maybe inform admin?
+        else: # Event was already set - this player was too late for this round
+            log.debug(f"User {message.author} correct r{active_loop_data.get('current_round', '?')} but event already set.")
 
 
-# Required setup function for the cog
 async def setup(bot: commands.Bot):
     db_cog = bot.get_cog("Database")
     if db_cog is None:
-        log.critical("Database Cog required by Unscramble Cog is not loaded.")
+        log.critical("Database Cog required by Unscramble Cog not loaded.")
         raise commands.ExtensionFailed("unscramble", "Database Cog not found.")
     await bot.add_cog(UnscrambleCog(bot))
     log.info("Unscramble Cog added to bot.")
