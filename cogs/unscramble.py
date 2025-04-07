@@ -183,7 +183,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
     async def _channel_game_loop(self, ctx: commands.Context, loop_data: dict):
         """Main async task managing the auto-running game loop for a channel."""
         channel_id = loop_data["channel_id"]
-        round_delay = 3.0
+        round_delay = 5.0
         round_timeout_task = None
         round_hint_task = None
 
@@ -231,7 +231,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
 
                     # --- Send Round Start Message (Always New) ---
                     try: # Send toast message with delete_after
-                         await ctx.send(embed=discord.Embed(description="⏭️ Next round starting...", color=config.EMBED_COLOR_INFO), delete_after=max(1.0, round_delay - 0.5))
+                         await ctx.send(embed=discord.Embed(description="⏭️ Next round starting...", color=config.EMBED_COLOR_INFO), delete_after=4.0)
                     except Exception as e: log.warning(f"Failed sending toast message: {e}")
                     # Optional slight delay to ensure toast shows before main embed if delete_after is short
                     # await asyncio.sleep(0.1)
