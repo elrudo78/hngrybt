@@ -230,12 +230,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                     if target_r != float('inf'): round_embed.set_footer(text=f"Progress: {current_r}/{int(target_r)}")
 
                     # --- Send Round Start Message (Always New) ---
-                    try: # Send toast message with delete_after
-                         await ctx.send(embed=discord.Embed(description="⏭️ Next round starting...", color=config.EMBED_COLOR_INFO), delete_after=4.0)
-                    except Exception as e: log.warning(f"Failed sending toast message: {e}")
-                    # Optional slight delay to ensure toast shows before main embed if delete_after is short
-                    # await asyncio.sleep(0.1)
-
+                                        
                     # Send the actual round embed as a new message
                     try: await ctx.send(embed=round_embed)
                     except Exception as e: log.exception(f"Failed send round start msg r{current_r}: {e}")
@@ -264,8 +259,18 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                     if round_hint_task and not round_hint_task.done(): round_hint_task.cancel()
                     loop_data.pop("current_round_details", None)
 
-                await asyncio.sleep(round_delay) # Inter-round delay
-
+                # --- Send "Next Round" Toast Immediately AFTER round cleanup ---
+                # Check if loop should continue before sending toast
+                if loop_data["current_round"] < loop_data["target_rounds"] and loop_data["consecutive_timeouts"] < 2:
+                    try:
+                        log.debug(f"[Loop {channel_id}] Sending next round toast.")
+                        await ctx.send(embed=discord.Embed(description="⏭️ Next round starting...", color=config.EMBED_COLOR_INFO), delete_after=4.0) # Keep 4s duration
+                    except Exception as e:
+                        log.warning(f"[Loop {channel_id}] Failed sending toast message: {e}")
+                # else: Don't send toast if loop is about to end
+                # --- Post-Round Delay (Now after the toast) ---
+                await asyncio.sleep(round_delay) # Keep the 5.0 second delay here
+                
         except asyncio.CancelledError:
             log.info(f"[Loop {channel_id}] Game loop task cancelled.")
             await ctx.send(embed=discord.Embed(description="🛑 Game loop stopped.", color=config.EMBED_COLOR_WARNING))
