@@ -197,7 +197,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
         channel_id = ctx.channel.id
 
         if channel_id in self.active_loops:
-            await ctx.send(embed=discord.Embed(title="⏳ Loop Already Running", description="A game is already active in this channel.", color=config.EMBED_COLOR_WARNING))
+            await ctx.send(embed=discord.Embed(title="⏳ Game Already Running", description="A game is already active in this channel.", color=config.EMBED_COLOR_WARNING))
             return
 
         target_rounds = float('inf'); is_infinite = True
@@ -258,7 +258,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
 
                 if timeouts >= 2:
                     log.warning(f"[Loop {channel_id}] Stopping game due to {timeouts} consecutive timeouts.")
-                    await ctx.send(embed=discord.Embed(title="😴 Game Stopped", description=f"Stopping due to inactivity ({timeouts} rounds timed out consecutively).", color=config.EMBED_COLOR_WARNING))
+                    await ctx.send(embed=discord.Embed(title="😴 Game Stopped", description=f"Stopping due to inactivity.", color=config.EMBED_COLOR_WARNING))
                     break # Exit loop
 
                 # --- Reset Round State ---
@@ -384,11 +384,11 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
             log.info(f"[Loop {channel_id}] Game loop task was cancelled externally (e.g., !stop command).")
             # Send stop message only if cancellation was likely external, not from break conditions
             if loop_data.get("round_status") != "STOPPED_INTERNAL": # Add a flag if needed for more clarity
-                 try: await ctx.send(embed=discord.Embed(description="🛑 Game loop has been stopped.", color=config.EMBED_COLOR_WARNING))
+                 try: await ctx.send(embed=discord.Embed(description="🛑 Game has been stopped.", color=config.EMBED_COLOR_WARNING))
                  except Exception: pass
         except Exception as loop_e:
             log.exception(f"[Loop {channel_id}] CRITICAL error in main game loop: {loop_e}")
-            try: await ctx.send(embed=discord.Embed(title="💥 Critical Loop Error!", description="The game encountered a critical error and had to stop.", color=config.EMBED_COLOR_ERROR))
+            try: await ctx.send(embed=discord.Embed(title="💥 Critical Error!", description="The game encountered a critical error and had to stop.", color=config.EMBED_COLOR_ERROR))
             except Exception: pass
         finally:
             log.info(f"[Loop {channel_id}] Entering final cleanup for game loop.")
