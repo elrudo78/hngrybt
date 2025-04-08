@@ -71,23 +71,23 @@ class AdminCog(commands.Cog, name="Admin"):
                 main_loop_task.cancel() # Cancel the main loop task
                 # The loop's finally block handles removing from active_loops and final message
                 # We send a confirmation here immediately
-                embed = discord.Embed(description=f"🛑 Requesting stop for the Unscramble game loop...", color=config.EMBED_COLOR_WARNING)
+                embed = discord.Embed(description=f"🛑 Requesting stop for the ongoing Unscramble game...", color=config.EMBED_COLOR_WARNING)
                 await ctx.send(embed=embed)
             else:
                 # Task doesn't exist or already done, maybe cleanup failed? Remove manually.
                 removed_data = unscramble_cog.active_loops.pop(channel_id, None)
                 if removed_data:
                      log.warning(f"Loop task for {channel_id} not found/done during stop cmd, removed entry.")
-                     embed = discord.Embed(description=f"ℹ️ The game loop was already stopping or stopped.", color=config.EMBED_COLOR_INFO)
+                     embed = discord.Embed(description=f"ℹ️ The game was already stopping or stopped.", color=config.EMBED_COLOR_INFO)
                      await ctx.send(embed=embed)
                 else:
                     # Entry wasn't even in the dict, means no loop was active
-                     embed = discord.Embed(description="🤔 No active game loop found in this channel to stop.", color=config.EMBED_COLOR_INFO)
+                     embed = discord.Embed(description="🤔 No active game found in this channel to stop.", color=config.EMBED_COLOR_INFO)
                      await ctx.send(embed=embed)
 
         else:
              # No loop active in this channel
-             embed = discord.Embed(description="🤔 No Unscramble game loop seems to be active in this channel.", color=config.EMBED_COLOR_INFO)
+             embed = discord.Embed(description="🤔 No Unscramble game seems to be active in this channel.", color=config.EMBED_COLOR_INFO)
              await ctx.send(embed=embed)
 
 
