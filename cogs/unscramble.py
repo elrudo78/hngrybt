@@ -331,17 +331,15 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                     loop_data.pop("current_round_details", None) # Remove details for the completed round
 
 
-                # <<< CHANGE: Automatic Leaderboard & Delay Logic >>>
-                # Moved the check logic here, *after* round cleanup
+                # <<< CHANGE: Revised Automatic Leaderboard, Toast & Delay Logic >>>
                 should_continue_loop = (loop_data["current_round"] < loop_data["target_rounds"]) and (loop_data["consecutive_timeouts"] < 2)
 
+                # Determine if the round that *just finished* was an interval round
                 is_current_round_lb_round = (current_r % config.LEADERBOARD_INTERVAL == 0) and current_r > 0
-                # Check based on the *next* theoretical round number
-                is_next_round_lb_round = ((current_r + 1) % config.LEADERBOARD_INTERVAL == 0) and should_continue_loop
 
                 current_inter_round_delay = round_delay # Start with base delay
 
-                # 1. Show Leaderboard if this completed round was an interval round
+                # 1. Show Leaderboard if appropriate
                 if is_current_round_lb_round and self.db_cog:
                     log.info(f"[Loop {channel_id}] Attempting to show automatic leaderboard after round {current_r}.")
                     try:
@@ -355,33 +353,31 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                              await ctx.send(embed=lb_embed)
                              loop_data["last_auto_lb_time"] = time.time() # Record time LB was shown
                              log.info(f"[Loop {channel_id}] Automatic leaderboard sent.")
+                             # <<< CHANGE >>> Add extra delay *after* showing the LB
+                             current_inter_round_delay += config.LEADERBOARD_EXTRA_DELAY
+                             log.debug(f"[Loop {channel_id}] Added extra delay ({config.LEADERBOARD_EXTRA_DELAY}s) because LB was shown.")
                         else:
                             log.info(f"[Loop {channel_id}] Automatic leaderboard embed was None (likely empty data).")
-
                     except Exception as e:
                          log.exception(f"[Loop {channel_id}] Error fetching/sending auto-leaderboard: {e}")
-                         # Don't crash the loop, just log the error
 
-                # 2. Adjust delay and suppress toast if *next* round is an LB round
-                if is_next_round_lb_round:
-                     log.debug(f"[Loop {channel_id}] Next round ({current_r + 1}) is LB round. Adding extra delay and suppressing toast.")
-                     current_inter_round_delay += config.LEADERBOARD_EXTRA_DELAY
-                else:
-                     # Only send toast if loop continues AND it's NOT right before an LB round
-                     if should_continue_loop:
-                         try:
-                             log.debug(f"[Loop {channel_id}] Sending 'next round' toast.")
-                             # Use a delete_after slightly less than the delay
-                             toast_delete_after = max(3.0, current_inter_round_delay - 0.5)
-                             await ctx.send(embed=discord.Embed(description="⏭️ Next round starting soon...", color=config.EMBED_COLOR_INFO), delete_after=toast_delete_after)
-                         except Exception as e:
-                             log.warning(f"[Loop {channel_id}] Failed sending 'next round' toast message: {e}")
+                # 2. Send 'Next Round' toast ONLY if the loop continues AND LB wasn't just shown
+                if should_continue_loop and not is_current_round_lb_round:
+                    try:
+                        log.debug(f"[Loop {channel_id}] Sending 'next round' toast (LB not shown this interval).")
+                        toast_delete_after = max(3.0, current_inter_round_delay - 0.5) # Adjust delete timer based on delay
+                        await ctx.send(embed=discord.Embed(description="⏭️ Next round starting soon...", color=config.EMBED_COLOR_INFO), delete_after=toast_delete_after)
+                    except Exception as e:
+                        log.warning(f"[Loop {channel_id}] Failed sending 'next round' toast message: {e}")
+                elif is_current_round_lb_round:
+                    log.debug(f"[Loop {channel_id}] Suppressing 'next round' toast because leaderboard was just displayed.")
+
 
                 # 3. Perform the inter-round delay IF the loop should continue
                 if should_continue_loop:
-                     log.debug(f"[Loop {channel_id}] Sleeping for {current_inter_round_delay:.1f} seconds before next round.")
+                     log.debug(f"[Loop {channel_id}] Sleeping for {current_inter_round_delay:.1f} seconds before round {current_r + 1}.")
                      await asyncio.sleep(current_inter_round_delay)
-                # else: If loop shouldn't continue, we exit naturally after this iteration
+                # else: Loop is ending, no sleep needed
 
 
         except asyncio.CancelledError:
