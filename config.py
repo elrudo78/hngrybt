@@ -16,6 +16,10 @@ TIME_LIMIT_SECONDS = 60
 STUCK_GAME_TIMEOUT_SECONDS = 300
 HINT_SCHEDULE_SECONDS = [20, 35, 45]
 
+LEADERBOARD_INTERVAL = 3 # Show leaderboard automatically every X rounds
+LEADERBOARD_EXTRA_DELAY = 2.0 # Extra seconds to wait before showing auto-leaderboard
+LEADERBOARD_ANTI_SPAM_SECONDS = 120 # Min seconds before showing end-game LB if auto-LB just shown
+
 # --- Database Settings ---
 SQLITE_DB_FILENAME = "data/leaderboard.sqlite" # Filename for the SQLite database
 # LEADERBOARD_DB_KEY = "unscramble_leaderboard" # <-- REMOVED
