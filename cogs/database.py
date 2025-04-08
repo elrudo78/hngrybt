@@ -180,7 +180,7 @@ class DatabaseCog(commands.Cog, name="Database"):
                     try:
                         user = await self.bot.fetch_user(user_id)
                         # Prefer display_name for more context if available
-                        username = user.display_name if hasattr(user, 'display_name') else user.name
+                        username = user.name
                         log.info(f"Fetched username for {user_id_str}: {username}")
                     except discord.NotFound:
                         log.warning(f"Could not fetch Discord user {user_id_str}: User not found.")
