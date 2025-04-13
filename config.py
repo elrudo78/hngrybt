@@ -2,6 +2,7 @@
 # Central configuration for the bot
 
 import discord
+import os # <<< CHANGE >>>
 
 # --- Core Settings ---
 COMMAND_PREFIX = "!"
@@ -11,18 +12,36 @@ DISCORD_TOKEN_ENV_VAR = "DISCORD_TOKEN" # Name of the secret in Codespaces/GitHu
 MOD_ROLE_NAME = "bot admin" # Role required for restricted commands
 
 # --- Unscramble Game Settings ---
-WORDS_FILENAME = "words.txt" # Assumes single word list file
+# <<< CHANGE >>> Define folder instead of file, and default behavior
+WORDS_FOLDER = "data/wordlists"  # Folder containing .txt word lists
+DEFAULT_THEME_NAME = "foods"     # If no theme specified, use this (filename without .txt)
+# Set DEFAULT_THEME_NAME to None to use a mix of all lists if no theme is chosen
 TIME_LIMIT_SECONDS = 60
 STUCK_GAME_TIMEOUT_SECONDS = 300
 HINT_SCHEDULE_SECONDS = [20, 35, 45]
 
-LEADERBOARD_INTERVAL = 3 # Show leaderboard automatically every X rounds
-LEADERBOARD_EXTRA_DELAY = 3.0 # Extra seconds to wait before showing auto-leaderboard
-LEADERBOARD_ANTI_SPAM_SECONDS = 120 # Min seconds before showing end-game LB if auto-LB just shown
+LEADERBOARD_INTERVAL = 4 # Show leaderboard automatically every X rounds
+LEADERBOARD_EXTRA_DELAY = 4.0 # Extra seconds to wait after showing auto-leaderboard
+LEADERBOARD_ANTI_SPAM_SECONDS = 30 # Min seconds before showing end-game LB if auto-LB just shown
 
 # --- Database Settings ---
 SQLITE_DB_FILENAME = "data/leaderboard.sqlite" # Filename for the SQLite database
-# LEADERBOARD_DB_KEY = "unscramble_leaderboard" # <-- REMOVED
+# Ensure the data directory exists (can be done here or in database.py)
+DATA_DIR = "data"
+WORDLISTS_DIR = os.path.join(DATA_DIR, "wordlists") # Path to the wordlists folder
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+    print(f"Created directory: {DATA_DIR}")
+if not os.path.exists(WORDLISTS_DIR):
+    os.makedirs(WORDLISTS_DIR)
+    print(f"Created directory: {WORDLISTS_DIR}")
+    # <<< Optional: Create a default file if the folder was just created >>>
+    # try:
+    #     with open(os.path.join(WORDLISTS_DIR, f"{DEFAULT_THEME_NAME}.txt"), "w") as f:
+    #         f.write("APPLE\nBANANA\nORANGE\n")
+    #     print(f"Created default wordlist: {DEFAULT_THEME_NAME}.txt")
+    # except Exception as e:
+    #     print(f"Warning: Could not create default wordlist file: {e}")
 
 # --- Embed Settings ---
 EMBED_COLOR_DEFAULT = discord.Color.blue()
