@@ -346,7 +346,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                         leaderboard_data = await self.db_cog.get_leaderboard_data()
                         lb_embed = await self._format_leaderboard_embed(
                              title=f"🏆 Leaderboard Update (After R{current_r}) 🏆",
-                             footer_text=f"Updates every {config.LEADERBOARD_INTERVAL} rounds.",
+                             footer_text=f"Broadcasts every {config.LEADERBOARD_INTERVAL} rounds.",
                              leaderboard_data=leaderboard_data
                         )
                         if lb_embed:
