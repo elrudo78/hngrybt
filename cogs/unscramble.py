@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands
 import random
 import time # <<< CHANGE >>> Added time import
+import os # <<< CHANGE >>> Make sure os is imported
 import asyncio
 import logging
 import config
@@ -22,7 +23,9 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.active_loops = {}
-        self.word_list = []
+        # <<< CHANGE >>> Store multiple word lists and a combined one
+        self.word_lists = {}  # Dict: {"theme_name": [WORD, ...], ...}
+        self.combined_word_list = [] # List: [WORD, ...] (all words from all lists)
         # <<< CHANGE >>> Ensure db_cog is fetched correctly
         self.db_cog = self.bot.get_cog("Database") # Get it during init
 
@@ -31,22 +34,59 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
         self._load_words()
         log.info("Unscramble Cog initialized.")
 
+    # <<< CHANGE >>> Overhaul _load_words completely
     def _load_words(self):
-        """Loads words from the single configured file."""
-        log.info(f"Loading words from '{config.WORDS_FILENAME}'...")
+        """Loads words from all .txt files in the configured folder."""
+        self.word_lists = {} # Reset caches
+        self.combined_word_list = []
+        loaded_files_count = 0
+        total_words_count = 0
+
+        if not os.path.isdir(config.WORDS_FOLDER):
+            log.error(f"Word list folder not found or is not a directory: '{config.WORDS_FOLDER}'. No words loaded.")
+            # You might want to create it here too, though config.py attempts it
+            # Or just ensure the bot fails gracefully later if no words are loaded.
+            return # Stop loading if folder doesn't exist
+
+        log.info(f"Loading word lists from folder: '{config.WORDS_FOLDER}'...")
         try:
-            with open(config.WORDS_FILENAME, "r", encoding='utf-8') as f:
-                self.word_list = [line.strip().upper() for line in f if line.strip()]
-            if not self.word_list:
-                log.warning(f"Word file '{config.WORDS_FILENAME}' is empty. Using default.")
-                self.word_list = ["DEFAULT"]
-            log.info(f"Loaded {len(self.word_list)} words from '{config.WORDS_FILENAME}'.")
-        except FileNotFoundError:
-            log.error(f"Word file '{config.WORDS_FILENAME}' not found! Using default.")
-            self.word_list = ["DEFAULT"]
+            for filename in os.listdir(config.WORDS_FOLDER):
+                if filename.lower().endswith(".txt"):
+                    theme_name = filename[:-4].lower() # Theme name is filename without .txt, lowercase
+                    filepath = os.path.join(config.WORDS_FOLDER, filename)
+                    try:
+                        with open(filepath, "r", encoding='utf-8') as f:
+                            # Read, strip whitespace, filter empty lines, convert to uppercase
+                            words_in_file = [line.strip().upper() for line in f if line.strip()]
+
+                        if words_in_file:
+                            self.word_lists[theme_name] = words_in_file
+                            self.combined_word_list.extend(words_in_file) # Add to the combined list
+                            log.info(f"  -> Loaded theme '{theme_name}' with {len(words_in_file)} words from '{filename}'.")
+                            loaded_files_count += 1
+                            total_words_count += len(words_in_file)
+                        else:
+                            log.warning(f"  -> Skipped empty or invalid word list file: '{filename}'")
+                    except FileNotFoundError:
+                        # Should not happen with listdir, but belt-and-suspenders
+                        log.error(f"  -> File not found during read (unexpected): '{filepath}'")
+                    except Exception as e:
+                        log.exception(f"  -> Failed to read or process file '{filepath}': {e}")
+
+            # After loop, check if anything was loaded
+            if not self.word_lists:
+                log.critical(f"No valid word lists loaded from '{config.WORDS_FOLDER}'. Unscramble game will not work.")
+                # Optionally add a dummy list to prevent crashes later, but logging is key
+                # self.word_lists["error"] = ["SETUP_ERROR"]
+                # self.combined_word_list = ["SETUP_ERROR"]
+            else:
+                # Ensure combined list has unique words if desired (optional)
+                # self.combined_word_list = list(set(self.combined_word_list))
+                # total_words_count = len(self.combined_word_list) # Update count if using set
+                log.info(f"Finished loading: {loaded_files_count} themes, {total_words_count} total words.")
+
         except Exception as e:
-            log.exception(f"Failed loading words from '{config.WORDS_FILENAME}': {e}")
-            self.word_list = ["DEFAULT"]
+            log.exception(f"An unexpected error occurred while scanning the word list folder '{config.WORDS_FOLDER}': {e}")
 
     def _create_hint_string(self, word, revealed_indices):
         """Creates the hint string like W O R _"""
@@ -192,7 +232,8 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
     @commands.command(name='unscramble', aliases=['us'])
     @commands.has_role(config.MOD_ROLE_NAME)
     @commands.guild_only()
-    async def unscramble(self, ctx: commands.Context, rounds: str = None):
+    async def unscramble(self, ctx: commands.Context, rounds: str = None, *, theme: str = None): # Use *, to allow multi-word themes
+        """Starts Unscramble. Args: [rounds] [theme]. Uses default theme if none given."""
         """Starts an auto-running Unscramble loop [num_rounds]. Runs infinitely if no number given."""
         channel_id = ctx.channel.id
 
@@ -209,33 +250,92 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                 await ctx.send(embed=discord.Embed(description=f"Invalid number of rounds specified: `{rounds}`. Please provide a positive whole number.", color=config.EMBED_COLOR_ERROR))
                 return
 
-        if not self.word_list or self.word_list == ["DEFAULT"]:
-             await ctx.send(embed=discord.Embed(description="❌ Error: Word list is not loaded or empty. Cannot start game.", color=config.EMBED_COLOR_ERROR))
+        # --- Theme Selection & Word List Preparation ---
+        # <<< CHANGE >>> Logic to select word list based on theme
+        active_word_list = []
+        chosen_theme_name = "Unknown"
+
+        if not self.word_lists: # Check if any words were loaded at all
+             await ctx.send(embed=discord.Embed(description="❌ Error: No word lists are loaded. Cannot start game.", color=config.EMBED_COLOR_ERROR))
+             log.error(f"Attempted to start game in {channel_id} but no word lists loaded.")
              return
 
-        # <<< CHANGE >>> Added last_auto_lb_time
+        available_themes = list(self.word_lists.keys())
+
+        if theme:
+            # User specified a theme
+            clean_theme = theme.strip().lower()
+            if clean_theme in self.word_lists:
+                active_word_list = self.word_lists[clean_theme]
+                chosen_theme_name = clean_theme.capitalize() # For display
+                log.info(f"Theme specified: '{clean_theme}'. Using corresponding word list ({len(active_word_list)} words).")
+            else:
+                # Invalid theme specified
+                themes_str = ", ".join(f"`{t}`" for t in available_themes) if available_themes else "None available"
+                await ctx.send(embed=discord.Embed(
+                    title="❓ Theme Not Found",
+                    description=f"Could not find the theme: `{theme}`.\nAvailable themes: {themes_str}",
+                    color=config.EMBED_COLOR_ERROR
+                ))
+                return
+        else:
+            # No theme specified, use default logic
+            if config.DEFAULT_THEME_NAME and config.DEFAULT_THEME_NAME.lower() in self.word_lists:
+                # Use the specific default theme file
+                default_key = config.DEFAULT_THEME_NAME.lower()
+                active_word_list = self.word_lists[default_key]
+                chosen_theme_name = default_key.capitalize() # For display
+                log.info(f"No theme specified. Using default theme: '{default_key}' ({len(active_word_list)} words).")
+            elif self.combined_word_list:
+                 # Fallback: Default theme not found/specified, use combined list if available
+                 active_word_list = self.combined_word_list
+                 chosen_theme_name = "All Themes"
+                 log.info(f"No theme specified, default '{config.DEFAULT_THEME_NAME}' not found/set. Using combined list ({len(active_word_list)} words).")
+            # else: If we reach here, something went wrong loading, handled by initial check
+
+        # Final check if the selected list is empty
+        if not active_word_list:
+             await ctx.send(embed=discord.Embed(description=f"❌ Error: The selected theme ('{chosen_theme_name}') resulted in an empty word list. Cannot start game.", color=config.EMBED_COLOR_ERROR))
+             log.error(f"Attempted to start game in {channel_id} with theme '{chosen_theme_name}' but list was empty.")
+             return
+
+       # --- Prepare and Start Loop ---
         loop_data = {
             "loop_task": None, "target_rounds": target_rounds, "current_round": 0,
             "consecutive_timeouts": 0, "round_complete_event": asyncio.Event(),
             "round_status": None, "channel_id": channel_id, "guild_id": ctx.guild.id,
-            "last_auto_lb_time": 0.0 # Initialize to 0 (epoch)
+            "last_auto_lb_time": 0.0,
+            # <<< CHANGE >>> Pass the selected list and theme name to the loop
+            "active_word_list": active_word_list,
+            "theme_name": chosen_theme_name
         }
 
-        log.info(f"Starting game loop: Channel {channel_id}, Guild {ctx.guild.id}, Rounds: {'Infinite' if is_infinite else target_rounds}, Requested by {ctx.author} ({ctx.author.id})")
+        log.info(f"Starting game loop: Channel {channel_id}, Guild {ctx.guild.id}, Rounds: {'Infinite' if is_infinite else target_rounds}, Theme: '{chosen_theme_name}', Requested by {ctx.author} ({ctx.author.id})")
         game_loop_task = self.bot.loop.create_task( self._channel_game_loop(ctx, loop_data), name=f"GameLoop-{channel_id}")
         loop_data["loop_task"] = game_loop_task
         self.active_loops[channel_id] = loop_data
 
         start_msg = f"✅ Unscramble game started by {ctx.author.mention} for **{'infinite' if is_infinite else target_rounds}** rounds!"
+        start_msg += f"\n**Theme:** {chosen_theme_name}" # Add theme info
         await ctx.send(embed=discord.Embed(description=start_msg, color=config.EMBED_COLOR_SUCCESS))
 
     async def _channel_game_loop(self, ctx: commands.Context, loop_data: dict):
         """Main async task managing the auto-running game loop for a channel."""
         channel_id = loop_data["channel_id"]
+        # <<< CHANGE >>> Get word list and theme name from loop_data
+        active_word_list = loop_data.get("active_word_list", []) # Get the specific list for this game
+        theme_name = loop_data.get("theme_name", "Unknown")      # Get the theme name for display
         round_delay = 5.0 # Base delay between rounds
         round_timeout_task = None
         round_hint_task = None
 
+        # <<< CHANGE >>> Add check here too, although command should prevent it
+        if not active_word_list:
+            log.error(f"[Loop {channel_id}] Game loop started but active_word_list is empty! Theme: '{theme_name}'. Aborting.")
+            await ctx.send(embed=discord.Embed(description="❌ Critical Error: Game cannot start with an empty word list.", color=config.EMBED_COLOR_ERROR))
+            # Need to clean up the loop data if we abort here
+            self.active_loops.pop(channel_id, None)
+            return
         # <<< CHANGE >>> Ensure db_cog is available within the loop
         if not self.db_cog:
             log.error(f"[Loop {channel_id}] Database Cog not available at loop start. Leaderboard features disabled.")
@@ -269,7 +369,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
 
                 try:
                     # --- Prepare Round ---
-                    original_word = random.choice(self.word_list)
+                    original_word = random.choice(active_word_list)
                     scrambled_word = original_word
                     # Ensure scramble happens for words > 1 length
                     while len(original_word) > 1 and scrambled_word == original_word:
@@ -287,7 +387,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
 
                     # --- Send Round Embed ---
                     round_title = f"🧩 Round {current_r}" + (f" / {int(target_r)}" if target_r != float('inf') else "")
-                    round_desc = f"Unscramble the word below!\n\n# **{scrambled_word}**\n\n*Time Limit: {config.TIME_LIMIT_SECONDS} seconds. Hints appear automatically.*"
+                    round_desc = f"Theme: **{theme_name}**\nUnscramble the word below!\n\n# **{scrambled_word}**\n\n*Time Limit: {config.TIME_LIMIT_SECONDS} seconds. Hints appear automatically.*"
                     round_embed = discord.Embed(title=round_title, description=round_desc, color=config.EMBED_COLOR_DEFAULT)
                     if target_r != float('inf'): round_embed.set_footer(text=f"Game Progress: {current_r}/{int(target_r)}")
 
