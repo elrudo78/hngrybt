@@ -173,8 +173,24 @@ class GeneralCog(commands.Cog, name="General"):
         mod_role_mention = f"Requires '{config.MOD_ROLE_NAME}' role."
         embed.add_field(name="--- Moderator Commands ---", value=mod_role_mention, inline=False)
 
-        embed.add_field(name=f"`{config.COMMAND_PREFIX}unscramble [rounds]` (or `us`)",
-                        value="Starts a new Unscramble game loop. If `rounds` is omitted, runs infinitely.", inline=False)
+        # <<< CHANGE >>> Updated description for !unscramble
+        embed.add_field(name=f"`{config.COMMAND_PREFIX}unscramble [rounds] [theme]` (or `us`)",
+                        value="Starts Unscramble. Optional: specify `rounds`. Optional: specify `theme` (e.g., `foods`). Uses default theme if omitted.", inline=False)
+
+        # <<< CHANGE >>> Add a way to list themes (could be its own command too)
+        try:
+            unscramble_cog = self.bot.get_cog("Unscramble")
+            if unscramble_cog and unscramble_cog.word_lists:
+                 available_themes = list(unscramble_cog.word_lists.keys())
+                 themes_str = ", ".join(f"`{t}`" for t in sorted(available_themes)) if available_themes else "None loaded"
+                 embed.add_field(name="Available Themes", value=themes_str, inline=False)
+            else:
+                 embed.add_field(name="Available Themes", value="Could not load themes.", inline=False)
+        except Exception as e:
+            log.warning(f"Could not fetch themes for help command: {e}")
+            embed.add_field(name="Available Themes", value="Error fetching themes.", inline=False)
+
+        
         embed.add_field(name=f"`{config.COMMAND_PREFIX}leaderboard` (or `lb`)",
                         value="Shows the top 10 players.", inline=False)
         embed.add_field(name=f"`{config.COMMAND_PREFIX}fulllb` (or `lball`)",
