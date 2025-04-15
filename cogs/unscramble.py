@@ -229,31 +229,72 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
         except asyncio.CancelledError: log.debug(f"[Hint Task {channel_id}-{current_r}] Cancelled.")
         except Exception as e: log.exception(f"[Hint Task {channel_id}-{current_r}] Error: {e}")
 
+    # <<< CHANGE >>> Modify signature to accept *args and parse manually
     @commands.command(name='unscramble', aliases=['us'])
     @commands.has_role(config.MOD_ROLE_NAME)
     @commands.guild_only()
-    async def unscramble(self, ctx: commands.Context, rounds: str = None, *, theme: str = None): # Use *, to allow multi-word themes
-        """Starts Unscramble. Args: [rounds] [theme]. Uses default theme if none given."""
-        """Starts an auto-running Unscramble loop [num_rounds]. Runs infinitely if no number given."""
+    async def unscramble(self, ctx: commands.Context, *args): # Accept any number of arguments
+        """Starts Unscramble. Args: [rounds] [theme] OR [theme]. Uses default theme/infinite rounds if omitted."""
         channel_id = ctx.channel.id
 
         if channel_id in self.active_loops:
             await ctx.send(embed=discord.Embed(title="⏳ Game Already Running", description="A game is already active in this channel.", color=config.EMBED_COLOR_WARNING))
             return
 
-        target_rounds = float('inf'); is_infinite = True
-        if rounds is not None:
+        # --- Argument Parsing Logic ---
+        # <<< CHANGE >>> Start Manual Parsing Block
+        parsed_rounds_str = None
+        parsed_theme_list = [] # To collect parts of multi-word themes
+
+        if not args:
+            # Case: !us (no arguments)
+            # Defaults: rounds=infinite, theme=None (will use default theme)
+            pass
+        elif args[0].isdigit():
+            # Case: Starts with a number, assume it's rounds
+            # Example: !us 10 OR !us 10 foods OR !us 10 harry potter
+            parsed_rounds_str = args[0]
+            if len(args) > 1:
+                # Anything after the number is the theme
+                parsed_theme_list = list(args[1:])
+        else:
+            # Case: Starts with a non-number, assume it's the theme
+            # Example: !us foods OR !us harry potter OR !us foods 10 OR !us harry potter 10
+            # Check if the *last* argument is a digit (potential rounds value at the end)
+            if len(args) > 1 and args[-1].isdigit():
+                parsed_rounds_str = args[-1]
+                parsed_theme_list = list(args[:-1]) # Theme is everything except the last arg
+            else:
+                # No digit at the end, assume all args are the theme
+                parsed_theme_list = list(args)
+                # rounds remains None (infinite)
+
+        # --- Rounds Validation ---
+        target_rounds = float('inf')
+        is_infinite = True
+        if parsed_rounds_str is not None:
             try:
-                num_rounds = int(rounds); assert num_rounds > 0
-                target_rounds = num_rounds; is_infinite = False
-            except (ValueError, AssertionError):
-                await ctx.send(embed=discord.Embed(description=f"Invalid number of rounds specified: `{rounds}`. Please provide a positive whole number.", color=config.EMBED_COLOR_ERROR))
+                num_rounds = int(parsed_rounds_str)
+                if num_rounds <= 0:
+                    # Handle non-positive numbers explicitly
+                    await ctx.send(embed=discord.Embed(description=f"Invalid number of rounds: `{num_rounds}`. Rounds must be a positive number.", color=config.EMBED_COLOR_ERROR))
+                    return
+                target_rounds = num_rounds
+                is_infinite = False
+            except ValueError:
+                # This should technically not happen if .isdigit() was true, but belt-and-suspenders
+                await ctx.send(embed=discord.Embed(description=f"Invalid number format for rounds: `{parsed_rounds_str}`.", color=config.EMBED_COLOR_ERROR))
                 return
+
+        # --- Theme Reconstruction ---
+        # Join the collected theme words, handle if list is empty
+        theme = " ".join(parsed_theme_list).strip() if parsed_theme_list else None
+        # <<< CHANGE >>> End Manual Parsing Block
 
         # --- Theme Selection & Word List Preparation ---
         # <<< CHANGE >>> Logic to select word list based on theme
         active_word_list = []
-        chosen_theme_name = "Unknown"
+        chosen_theme_name = "Unknown" # Default display name
 
         if not self.word_lists: # Check if any words were loaded at all
              await ctx.send(embed=discord.Embed(description="❌ Error: No word lists are loaded. Cannot start game.", color=config.EMBED_COLOR_ERROR))
@@ -263,8 +304,8 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
         available_themes = list(self.word_lists.keys())
 
         if theme:
-            # User specified a theme
-            clean_theme = theme.strip().lower()
+            # User specified a theme (or we parsed one)
+            clean_theme = theme.lower() # Already joined, just lower()
             if clean_theme in self.word_lists:
                 active_word_list = self.word_lists[clean_theme]
                 chosen_theme_name = clean_theme.capitalize() # For display
