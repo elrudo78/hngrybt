@@ -10,7 +10,6 @@ Badminton
 Ball
 Base
 Baseball
-Basketball
 Bat
 Batter
 Beam
@@ -18,7 +17,7 @@ Beat
 Bench
 Bike
 Biking
-Billiards
+Billiard
 Bingo
 Bobsled
 Bonus
@@ -50,7 +49,6 @@ Chess
 Chip
 Climb
 Climber
-Climbing
 Club
 Coach
 Coin
@@ -82,7 +80,6 @@ Discus
 Dive
 Diver
 Diving
-Dodgeball
 Dojo
 Domino
 Double
@@ -92,7 +89,6 @@ Draw
 Dribble
 Drive
 Driver
-Dumbbell
 Dunk
 Exercise
 Faceoff
@@ -119,7 +115,6 @@ Football
 Foul
 Four
 Frame
-Freestyle
 Frisbee
 Game
 Gamer
@@ -195,7 +190,6 @@ Leader
 League
 Left
 Level
-Lifeguard
 Lift
 Lifter
 Lifting
@@ -233,13 +227,9 @@ Out
 Outfield
 Over
 Paddle
-Paddleball
-Paintball
 Par
 Partner
 Pass
-Passer
-Passing
 Pedal
 Penalty
 Pick
@@ -289,7 +279,6 @@ Rafting
 Rally
 Rebound
 Receiver
-Redcard
 Referee
 Reflex
 Relay
@@ -342,7 +331,6 @@ Server
 Set
 Shoot
 Shooter
-Shooting
 Shot
 Shotput
 Showdown
@@ -353,7 +341,6 @@ Sideline
 Signal
 Sinker
 Skate
-Skateboard
 Skater
 Skating
 Skeet
@@ -361,10 +348,8 @@ Ski
 Skier
 Skiing
 Skill
-Skimboard
 Skip
 Skipper
-Skipping
 Skittle
 Skydive
 Sled
@@ -377,7 +362,6 @@ Slope
 Snag
 Snooker
 Snorkel
-Snowboard
 Soccer
 Softball
 Solo
@@ -385,14 +369,12 @@ Spades
 Spare
 Sparring
 Speed
-Speedway
 Spin
 Sport
 Spot
 Spotter
 Sprint
 Sprinter
-Sprinting
 Squash
 Squat
 Stable
@@ -427,7 +409,6 @@ Suit
 Sumo
 Summit
 Surf
-Surfboard
 Surfer
 Surfing
 Sweep
@@ -444,7 +425,6 @@ Take
 Tally
 Target
 Team
-Teammate
 Tee
 Tennis
 Tenpin
@@ -464,7 +444,6 @@ Toe
 Top
 Toss
 Touch
-Touchdown
 Tour
 Tournament
 Track
