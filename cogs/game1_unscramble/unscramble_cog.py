@@ -146,7 +146,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
     async def _game_timeout_task(self, channel: discord.TextChannel, channel_id: int, round_start_time: float, correct_word: str, loop_data: dict):
         """Background task for per-round timeout. Updates loop state."""
         try:
-            await asyncio.sleep(config.TIME_LIMIT_SECONDS)
+            await asyncio.sleep(config.UNSCRAMBLE_TIME_LIMIT_SECONDS)
 
             active_loop_data = self.active_loops.get(channel_id)
             if not active_loop_data: return
@@ -188,9 +188,9 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
         max_hints = max(0, len(correct_word)//2);
         if len(correct_word) > 1 and max_hints==0: max_hints=1
         current_r = loop_data.get("current_round","?")
-        log.debug(f"[Hint Task {channel_id}-{current_r}] Start. Max:{max_hints}. Sched:{config.HINT_SCHEDULE_SECONDS}")
+        log.debug(f"[Hint Task {channel_id}-{current_r}] Start. Max:{max_hints}. Sched:{config.UNSCRAMBLE_HINT_SCHEDULE_SECONDS}")
         try:
-            for scheduled_time in config.HINT_SCHEDULE_SECONDS:
+            for scheduled_time in config.UNSCRAMBLE_HINT_SCHEDULE_SECONDS:
                 # Check active state before sleeping AND after waking up
                 active_loop_data=self.active_loops.get(channel_id);
                 if not active_loop_data: break
@@ -400,7 +400,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
             return
         # <<< CHANGE >>> Ensure db_cog is available within the loop
         if not self.db_cog:
-            log.error(f"[Loop {channel_id}] Database Cog not available at loop start. Leaderboard features disabled.")
+            log.error(f"[Loop {channel_id}] Unscramble Database Cog not available at loop start. Leaderboard features disabled.")
             # Optionally send a message to the channel?
             # await ctx.send("Warning: Leaderboard connection error. Scores may not save/display.")
 
@@ -449,7 +449,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
 
                     # --- Send Round Embed ---
                     round_title = f"🧩 Round {current_r}" + (f" / {int(target_r)}" if target_r != float('inf') else "")
-                    round_desc = f"Theme: **{theme_name}**\nUnscramble the word below!\n\n# **{scrambled_word}**\n\n*Time Limit: {config.TIME_LIMIT_SECONDS} seconds. Hints appear automatically.*"
+                    round_desc = f"Theme: **{theme_name}**\nUnscramble the word below!\n\n# **{scrambled_word}**\n\n*Time Limit: {config.UNSCRAMBLE_TIME_LIMIT_SECONDS} seconds. Hints appear automatically.*"
                     round_embed = discord.Embed(title=round_title, description=round_desc, color=config.EMBED_COLOR_DEFAULT)
                     if target_r != float('inf'): round_embed.set_footer(text=f"Game Progress: {current_r}/{int(target_r)}")
 
@@ -497,7 +497,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                 should_continue_loop = (loop_data["current_round"] < loop_data["target_rounds"]) and (loop_data["consecutive_timeouts"] < 2)
 
                 # Determine if the round that *just finished* was an interval round
-                is_current_round_lb_round = (current_r % config.LEADERBOARD_INTERVAL == 0) and current_r > 0
+                is_current_round_lb_round = (current_r % config.UNSCRAMBLE_LEADERBOARD_INTERVAL == 0) and current_r > 0
 
                 current_inter_round_delay = round_delay # Start with base delay
 
@@ -508,7 +508,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                         leaderboard_data = await self.db_cog.get_leaderboard_data()
                         lb_embed = await self._format_leaderboard_embed(
                              title=f"🏆 Leaderboard Update (After R{current_r}) 🏆",
-                             footer_text=f"Broadcasts every {config.LEADERBOARD_INTERVAL} rounds.",
+                             footer_text=f"Broadcasts every {config.UNSCRAMBLE_LEADERBOARD_INTERVAL} rounds.",
                              leaderboard_data=leaderboard_data
                         )
                         if lb_embed:
@@ -516,8 +516,8 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                              loop_data["last_auto_lb_time"] = time.time() # Record time LB was shown
                              log.info(f"[Loop {channel_id}] Automatic leaderboard sent.")
                              # <<< CHANGE >>> Add extra delay *after* showing the LB
-                             current_inter_round_delay += config.LEADERBOARD_EXTRA_DELAY
-                             log.debug(f"[Loop {channel_id}] Added extra delay ({config.LEADERBOARD_EXTRA_DELAY}s) because LB was shown.")
+                             current_inter_round_delay += config.UNSCRAMBLE_LEADERBOARD_EXTRA_DELAY
+                             log.debug(f"[Loop {channel_id}] Added extra delay ({config.UNSCRAMBLE_LEADERBOARD_EXTRA_DELAY}s) because LB was shown.")
                         else:
                             log.info(f"[Loop {channel_id}] Automatic leaderboard embed was None (likely empty data).")
                     except Exception as e:
@@ -568,8 +568,8 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
             try:
                  # Check anti-spam: More than N seconds since last auto-LB?
                  time_since_last_lb = time.time() - loop_data.get('last_auto_lb_time', 0)
-                 if time_since_last_lb > config.LEADERBOARD_ANTI_SPAM_SECONDS:
-                     log.info(f"[Loop {channel_id}] Attempting to show final leaderboard (Last LB: {time_since_last_lb:.0f}s ago > {config.LEADERBOARD_ANTI_SPAM_SECONDS}s).")
+                 if time_since_last_lb > config.UNSCRAMBLE_LEADERBOARD_ANTI_SPAM_SECONDS:
+                     log.info(f"[Loop {channel_id}] Attempting to show final leaderboard (Last LB: {time_since_last_lb:.0f}s ago > {config.UNSCRAMBLE_LEADERBOARD_ANTI_SPAM_SECONDS}s).")
                      if self.db_cog:
                          leaderboard_data = await self.db_cog.get_leaderboard_data()
                          final_lb_embed = await self._format_leaderboard_embed(
@@ -583,7 +583,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                          else:
                               log.info(f"[Loop {channel_id}] Final leaderboard embed was None.")
                      else:
-                         log.error(f"[Loop {channel_id}] Cannot show final leaderboard: Database Cog not available.")
+                         log.error(f"[Loop {channel_id}] Cannot show final leaderboard: Unscramble Database Cog not available.")
                  else:
                       log.info(f"[Loop {channel_id}] Final leaderboard skipped due to anti-spam check (Last LB shown {time_since_last_lb:.0f}s ago).")
             except Exception as e:
@@ -671,7 +671,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
             new_total_score = 0 # Initialize score
 
             # Use Decimal for points if more precision needed, but int is fine here
-            if time_taken <= config.TIME_LIMIT_SECONDS: # Ensure they were within time limit
+            if time_taken <= config.UNSCRAMBLE_TIME_LIMIT_SECONDS: # Ensure they were within time limit
                 if time_taken <= 10: points_earned = 100
                 elif time_taken <= 20: points_earned = 85
                 elif time_taken <= 30: points_earned = 70
@@ -688,7 +688,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
                         log.exception(f"Error calling update_score for {user_id}: {db_e}")
                         points_earned = -1 # Indicate score save error
                 else:
-                    log.error(f"Database Cog not available. Cannot update score for user {user_id}.")
+                    log.error(f"Unscramble Database Cog not available. Cannot update score for user {user_id}.")
                     points_earned = -1 # Indicate score save error
 
                 # --- Send Win Message ---
@@ -716,7 +716,7 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
             else:
                 # This case should technically be impossible if timeout task works correctly,
                 # but log it just in case.
-                log.warning(f"User {user_name} ({user_id}) provided correct answer for round {current_r} but time_taken ({time_taken:.2f}s) exceeded limit ({config.TIME_LIMIT_SECONDS}s). Event was somehow not set by timeout task.")
+                log.warning(f"User {user_name} ({user_id}) provided correct answer for round {current_r} but time_taken ({time_taken:.2f}s) exceeded limit ({config.UNSCRAMBLE_TIME_LIMIT_SECONDS}s). Event was somehow not set by timeout task.")
                 # Don't send a message here, as the timeout message should have already been sent.
 
         else:
