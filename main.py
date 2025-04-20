@@ -123,7 +123,9 @@ def run_bot():
                      # "cogs.game2_riddles.riddles_admin",
                      # "cogs.game2_riddles.riddles_general",
                      # Global Help Cog (Example - Add later)
-                     # "cogs.global_utils.help_cog",
+                     # Global Help Cog (Load after games so it sees their commands)
+                     "cogs.global_utils.help_cog", # <<< ADD THIS LINE
+                     
                  ]
 
                  for ext_path in extensions_to_load:
