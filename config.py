@@ -16,16 +16,16 @@ MOD_ROLE_NAME = "bot admin" # Role required for restricted commands
 WORDS_FOLDER = "data/wordlists"  # Folder containing .txt word lists
 DEFAULT_THEME_NAME = "foods"     # If no theme specified, use this (filename without .txt)
 # Set DEFAULT_THEME_NAME to None to use a mix of all lists if no theme is chosen
-TIME_LIMIT_SECONDS = 60
+UNSCRAMBLE_TIME_LIMIT_SECONDS = 60
 STUCK_GAME_TIMEOUT_SECONDS = 300
-HINT_SCHEDULE_SECONDS = [20, 35, 45]
+UNSCRAMBLE_HINT_SCHEDULE_SECONDS = [20, 35, 45]
 
-LEADERBOARD_INTERVAL = 4 # Show leaderboard automatically every X rounds
-LEADERBOARD_EXTRA_DELAY = 4.0 # Extra seconds to wait after showing auto-leaderboard
-LEADERBOARD_ANTI_SPAM_SECONDS = 30 # Min seconds before showing end-game LB if auto-LB just shown
+UNSCRAMBLE_LEADERBOARD_INTERVAL = 4 # Show leaderboard automatically every X rounds
+UNSCRAMBLE_LEADERBOARD_EXTRA_DELAY = 4.0 # Extra seconds to wait after showing auto-leaderboard
+UNSCRAMBLE_LEADERBOARD_ANTI_SPAM_SECONDS = 30 # Min seconds before showing end-game LB if auto-LB just shown
 
 # --- Database Settings ---
-SQLITE_DB_FILENAME = "data/leaderboard.sqlite" # Filename for the SQLite database
+UNSCRAMBLE_DB_FILENAME = "data/leaderboard.sqlite" # Filename for the SQLite database
 # Ensure the data directory exists (can be done here or in database.py)
 DATA_DIR = "data"
 WORDLISTS_DIR = os.path.join(DATA_DIR, "wordlists") # Path to the wordlists folder
@@ -52,4 +52,4 @@ EMBED_COLOR_INFO = discord.Color.gold()
 EMBED_COLOR_HINT = discord.Color.blurple()
 
 # --- Bot Activity ---
-BOT_ACTIVITY_NAME = f"{COMMAND_PREFIX}unscramble"
+BOT_ACTIVITY_NAME = f"{COMMAND_PREFIX}help for commands" # <<< CHANGE >>> More generic activity

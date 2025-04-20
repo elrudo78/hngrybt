@@ -17,12 +17,12 @@ log = logging.getLogger(__name__)
 # <<< CHANGE >>> Define a default name for cases where fetch fails
 UNKNOWN_USERNAME = "Unknown User"
 
-class DatabaseCog(commands.Cog, name="Database"):
+class UnscrambleDatabaseCog(commands.Cog, name="UnscrambleDB"):
     """Manages database operations using SQLite, storing usernames."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.db_path = config.SQLITE_DB_FILENAME # Get path from config
+        self.db_path = config.UNSCRAMBLE_DB_FILENAME # Get path from config
         self.conn = None # Holds the connection object
         # <<< CHANGE >>> Cache now stores dicts: {user_id_str: {'name': str, 'score': int}}
         self.leaderboard_cache = {} # Renamed for clarity
@@ -38,13 +38,13 @@ class DatabaseCog(commands.Cog, name="Database"):
                 log.exception(f"Failed to create database directory {db_dir}: {e}")
 
         # Start DB initialization in the background
-        self.init_task = self.bot.loop.create_task(self._initialize_database(), name="DBInit")
-        log.info("Database Cog initializing...")
+        self.init_task = self.bot.loop.create_task(self._initialize_database(), name="UnscrambleDBInit")
+        log.info("Unscramble Database Cog initializing...")
 
     async def _initialize_database(self):
         """Connects to the SQLite DB and ensures the table exists. Loads cache."""
         try:
-            log.info(f"Connecting to SQLite database: {self.db_path}")
+            log.info(f"Connecting to Unscramble SQLite database: {self.db_path}")
             self.conn = await aiosqlite.connect(self.db_path)
             log.info("Database connection established.")
 
@@ -260,8 +260,17 @@ class DatabaseCog(commands.Cog, name="Database"):
             log.info("No active database connection to close.")
 
 # --- Setup Function ---
-async def setup(bot: commands.Bot):
-    """Adds the Cog to the bot."""
-    # No explicit dependency check needed here, but ensure it loads early in main.py
-    await bot.add_cog(DatabaseCog(bot))
-    log.info("Database Cog added to bot.")
+# <<< CHANGE >>> Update setup function name if needed (optional but good practice)
+async def setup_unscramble_db(bot: commands.Bot):
+    # Adds the *renamed* Cog to the bot
+    await bot.add_cog(UnscrambleDatabaseCog(bot))
+    log.info("Unscramble Database Cog added to bot.")
+
+# Note: The setup function name doesn't *strictly* matter to discord.py's loader,
+# which looks for a function named 'setup'. However, using distinct names can help
+# avoid confusion if you ever inspect the loading process manually.
+# If we keep it named 'setup', main.py's loader will just call it. Let's keep it 'setup' for simplicity with the loader.
+
+async def setup(bot: commands.Bot): # <<< KEEP AS 'setup'
+    await bot.add_cog(UnscrambleDatabaseCog(bot))
+    log.info("Unscramble Database Cog added to bot.")

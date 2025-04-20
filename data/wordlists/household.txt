@@ -37,7 +37,6 @@ Bulb
 Button
 Cabinet
 Cable
-Calculator
 Calendar
 Camera
 Can
@@ -57,13 +56,10 @@ Clock
 Closet
 Cloth
 Coat
-Coathanger
 Coin
 Comb
-Computer
 Cone
 Cord
-Corkscrew
 Couch
 Cup
 Cupboard
@@ -71,7 +67,6 @@ Curtain
 Cushion
 Cutlery
 Desk
-Detergent
 Dial
 Diaper
 Diary
@@ -79,7 +74,6 @@ Dice
 Disc
 Disk
 Dish
-Dishwasher
 Doll
 Door
 Doorknob
@@ -98,13 +92,11 @@ Faucet
 File
 Film
 Filter
-Fireplace
 Firework
 Flask
 Floor
 Floss
 Flower
-Flowerpot
 Folder
 Food
 Fork
@@ -128,14 +120,12 @@ Grater
 Grill
 Gum
 Hair
-Hairbrush
 Hammer
 Hammock
 Hamper
 Handle
 Hat
 Headband
-Headphone
 Heater
 Helmet
 Hinge
@@ -143,7 +133,6 @@ Hole
 Hook
 Hose
 House
-Humidifier
 Ice
 Ink
 Iron
@@ -162,7 +151,6 @@ Knob
 Lace
 Ladle
 Lamp
-Lampshade
 Lantern
 Laptop
 Latch
@@ -173,7 +161,6 @@ Leg
 Letter
 Lever
 Lid
-Lifejacket
 Light
 Lighter
 Line
@@ -187,7 +174,6 @@ Lotion
 Luggage
 Magazine
 Magnet
-Magnifier
 Mail
 Mailbox
 Map
@@ -202,8 +188,6 @@ Memo
 Menu
 Metal
 Meter
-Microphone
-Microwave
 Milk
 Mirror
 Mixer
@@ -232,7 +216,6 @@ Pad
 Padlock
 Pail
 Paint
-Paintbrush
 Pan
 Pants
 Paper
@@ -266,11 +249,9 @@ Plunger
 Pocket
 Polish
 Pool
-Portfolio
 Post
 Poster
 Pot
-Potholder
 Pouch
 Powder
 Printer
@@ -309,7 +290,6 @@ Safe
 Sail
 Salt
 Sandal
-Sandpaper
 Saucer
 Saw
 Scale
@@ -322,7 +302,6 @@ Seal
 Seat
 Shaker
 Shampoo
-Sharpener
 Shaver
 Shawl
 Sheet
@@ -338,7 +317,6 @@ Sieve
 Sign
 Silk
 Sink
-Skateboard
 Ski
 Skirt
 Sled
@@ -357,7 +335,6 @@ Spool
 Spoon
 Spray
 Spring
-Sprinkler
 Stamp
 Stand
 Stapler
@@ -380,13 +357,11 @@ Stylus
 Suit
 Suitcase
 Sunblock
-Sunglasses
 Sweater
 Sweeper
 Switch
 Syringe
 Table
-Tablecloth
 Tablet
 Tack
 Tag
@@ -398,8 +373,6 @@ Tarp
 Tassel
 Teapot
 Teddy
-Telescope
-Television
 Tent
 Thimble
 Thread
@@ -413,9 +386,6 @@ Toaster
 Token
 Tongs
 Toolbox
-Toothbrush
-Toothpaste
-Toothpick
 Top
 Torch
 Towel
@@ -466,7 +436,6 @@ Wire
 Wood
 Wool
 Wrench
-Wristband
 Yarn
 Yoyo
 Zipper
