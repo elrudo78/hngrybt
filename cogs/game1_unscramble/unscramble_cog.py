@@ -13,7 +13,7 @@ import os # <<< CHANGE >>> Make sure os is imported
 import asyncio
 import logging
 import config
-from .database import DatabaseCog # Database Cog now provides usernames
+from .unscramble_db import UnscrambleDatabaseCog # Import renamed Cog from renamed file
 
 log = logging.getLogger(__name__)
 
