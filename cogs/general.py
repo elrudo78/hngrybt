@@ -7,39 +7,33 @@ from discord.ext import commands
 import logging
 import io         # <<< CHANGE >>> Added for file operations
 import config     # Import shared configuration
-from .database import DatabaseCog # Import the Database Cog
 
 log = logging.getLogger(__name__)
 
-class GeneralCog(commands.Cog, name="General"):
-    """General informational and utility commands"""
+class UnscrambleGeneralCog(commands.Cog, name="UnscrambleGeneral"):
+    """General commands specific to the Unscramble game (Leaderboard, etc)."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # <<< CHANGE >>> Get Database Cog instance robustly
-        # It's better to potentially get it inside commands if load order is uncertain,
-        # but since it's checked at setup, getting it here is okay.
-        # If DatabaseCog fails to load, this cog's setup will fail.
-        self.db_cog: DatabaseCog = self.bot.get_cog("Database")
-        if not self.db_cog:
-            # This log might not even be reached if setup fails first, but good practice.
-            log.critical("!!! General Cog initialized BUT Database Cog is missing! Commands will fail. !!!")
 
-    @commands.command(name='leaderboard', aliases=['lb'])
+    # <<< CHANGE >>> Rename command and aliases
+    @commands.command(name='us_lb', aliases=['us_leaderboard'])
     @commands.has_role(config.MOD_ROLE_NAME) # Role restricted
     @commands.guild_only()
     async def leaderboard(self, ctx: commands.Context):
         """Displays the top 10 Unscramble players."""
-        log.info(f"Leaderboard command issued by {ctx.author} in guild {ctx.guild.id}")
+        log.info(f"Unscramble Leaderboard command issued by {ctx.author} in guild {ctx.guild.id}")
 
-        if not self.db_cog:
-            embed = discord.Embed(description="❌ Database service is unavailable. Cannot fetch leaderboard.", color=config.EMBED_COLOR_ERROR)
+        # <<< CHANGE >>> Fetch specific Unscramble DB cog
+        db_cog = self.bot.get_cog("UnscrambleDB")
+        if not db_cog:
+            embed = discord.Embed(description="❌ Unscramble Database service is unavailable. Cannot fetch leaderboard.", color=config.EMBED_COLOR_ERROR)
             await ctx.send(embed=embed)
             return
 
         try:
             # <<< CHANGE >>> Fetch data using the new method
-            leaderboard_data = await self.db_cog.get_leaderboard_data() # Gets {user_id: {'name': name, 'score': score}}
+            leaderboard_data = await db_cog.get_leaderboard_data() # Gets {user_id: {'name': name, 'score': score}}
 
             if not leaderboard_data:
                 embed = discord.Embed(description="📜 The leaderboard is currently empty! Play some rounds first.", color=config.EMBED_COLOR_INFO)
@@ -78,26 +72,28 @@ class GeneralCog(commands.Cog, name="General"):
             await ctx.send(embed=embed)
 
         except Exception as e:
-            log.exception(f"Error fetching or processing leaderboard: {e}")
-            embed = discord.Embed(description="❌ An error occurred while fetching the leaderboard.", color=config.EMBED_COLOR_ERROR)
+            log.exception(f"Error fetching or processing Unscramble leaderboard: {e}")
+            embed = discord.Embed(description="❌ An error occurred while fetching the Unscramble leaderboard.", color=config.EMBED_COLOR_ERROR)
             await ctx.send(embed=embed)
 
 
     # <<< CHANGE >>> New command added
-    @commands.command(name='fulllb', aliases=['lball'])
+    @commands.command(name='us_fulllb', aliases=['us_lball'])
     @commands.has_role(config.MOD_ROLE_NAME) # Role restricted
     @commands.guild_only()
     async def full_leaderboard(self, ctx: commands.Context):
-        """Sends the complete leaderboard (all players with scores) as a text file."""
-        log.info(f"Full Leaderboard file command issued by {ctx.author} in guild {ctx.guild.id}")
+        """Sends the complete Unscramble leaderboard (all players with scores) as a text file."""
+        log.info(f"Unscramble Full Leaderboard file command issued by {ctx.author} in guild {ctx.guild.id}")
 
-        if not self.db_cog:
+        # <<< CHANGE >>> Fetch specific Unscramble DB cog
+        db_cog = self.bot.get_cog("UnscrambleDB")
+        if not db_cog:
             embed = discord.Embed(description="❌ Database service is unavailable. Cannot fetch full leaderboard.", color=config.EMBED_COLOR_ERROR)
             await ctx.send(embed=embed)
             return
 
         try:
-            leaderboard_data = await self.db_cog.get_leaderboard_data() # Gets {user_id: {'name': name, 'score': score}}
+            leaderboard_data = await db_cog.get_leaderboard_data() # Gets {user_id: {'name': name, 'score': score}}
 
             # Filter out users with 0 or None score explicitly, although DB should handle it.
             # Also converts to list for sorting: [(user_id, {'name': name, 'score': score}), ...]
@@ -146,69 +142,14 @@ class GeneralCog(commands.Cog, name="General"):
             discord_file = discord.File(fp=file_buffer, filename="full_unscramble_leaderboard.txt")
 
             # Send the file
-            await ctx.send(f"📋 Here is the full leaderboard ({len(sorted_leaderboard)} players):", file=discord_file)
+            await ctx.send(f"📋 Here is the full Unscramble leaderboard ({len(sorted_leaderboard)} players):", file=discord_file)
             log.info(f"Sent full leaderboard file ({len(sorted_leaderboard)} entries) for guild {ctx.guild.id}")
 
         except Exception as e:
-            log.exception(f"Error generating or sending full leaderboard file: {e}")
-            embed = discord.Embed(description="❌ An error occurred while generating the full leaderboard file.", color=config.EMBED_COLOR_ERROR)
+            log.exception(f"Error generating or sending Unscramble full leaderboard file: {e}")
+            embed = discord.Embed(description="❌ An error occurred while generating the Unscramble full leaderboard file.", color=config.EMBED_COLOR_ERROR)
             await ctx.send(embed=embed)
 
-
-    # <<< CHANGE >>> Help command updated for new features/roles
-    @commands.command(name='help', aliases=['h', 'commands'])
-    # @commands.has_role(config.MOD_ROLE_NAME) # Decide if help is restricted or open
-    @commands.guild_only() # Keep in guilds
-    async def help_command(self, ctx: commands.Context):
-        """Shows this help message listing available commands."""
-        log.info(f"Help command requested by {ctx.author} in guild {ctx.guild.id}")
-
-        embed = discord.Embed(title="🧩 Unscramble Bot Help 🧩",
-                              description="Here are the commands you can use:",
-                              color=config.EMBED_COLOR_DEFAULT)
-        try: embed.set_thumbnail(url=self.bot.user.display_avatar.url)
-        except Exception: pass # Ignore if avatar fetch fails
-
-        # --- Moderator Commands ---
-        mod_role_mention = f"Requires '{config.MOD_ROLE_NAME}' role."
-        embed.add_field(name="--- Moderator Commands ---", value=mod_role_mention, inline=False)
-
-        # <<< CHANGE >>> Updated description for !unscramble
-        embed.add_field(name=f"`{config.COMMAND_PREFIX}unscramble [rounds] [theme]` (or `us`)",
-                        value="Starts Unscramble. Optional: specify `rounds`. Optional: specify `theme` (e.g., `foods`). Uses default theme if omitted.", inline=False)
-
-        # <<< CHANGE >>> Add a way to list themes (could be its own command too)
-        try:
-            unscramble_cog = self.bot.get_cog("Unscramble")
-            if unscramble_cog and unscramble_cog.word_lists:
-                 available_themes = list(unscramble_cog.word_lists.keys())
-                 themes_str = ", ".join(f"`{t}`" for t in sorted(available_themes)) if available_themes else "None loaded"
-                 embed.add_field(name="Available Themes", value=themes_str, inline=False)
-            else:
-                 embed.add_field(name="Available Themes", value="Could not load themes.", inline=False)
-        except Exception as e:
-            log.warning(f"Could not fetch themes for help command: {e}")
-            embed.add_field(name="Available Themes", value="Error fetching themes.", inline=False)
-
-        
-        embed.add_field(name=f"`{config.COMMAND_PREFIX}leaderboard` (or `lb`)",
-                        value="Shows the top 10 players.", inline=False)
-        embed.add_field(name=f"`{config.COMMAND_PREFIX}fulllb` (or `lball`)",
-                        value="Sends a text file with the complete leaderboard.", inline=False)
-        embed.add_field(name=f"`{config.COMMAND_PREFIX}stop` (or `stopgame`, `cancelgame`)",
-                        value="Force-stops the current Unscramble game in the channel.", inline=False)
-        embed.add_field(name=f"`{config.COMMAND_PREFIX}resetleaderboard` (or `resetlb`)",
-                        value="⚠️ Clears *all* Unscramble scores permanently.", inline=False)
-
-        # --- General Commands ---
-        # If help isn't restricted, list public commands here
-        embed.add_field(name="--- General Commands ---", value="\u200b", inline=False) # Zero-width space for spacing
-        embed.add_field(name=f"`{config.COMMAND_PREFIX}help` (or `h`, `commands`)",
-                        value="Shows this help message.", inline=False)
-        # Add !rank command here when implemented
-
-        embed.set_footer(text="Good luck and have fun unscrambling!")
-        await ctx.send(embed=embed)
 
     # --- Placeholder for !rank command ---
     # @commands.command(name='rank')
@@ -249,12 +190,7 @@ class GeneralCog(commands.Cog, name="General"):
 
 
 # Required setup function
-async def setup(bot: commands.Bot):
-    # <<< CHANGE >>> Explicit dependency check for Database Cog
-    db_cog = bot.get_cog("Database")
-    if db_cog is None:
-        log.critical("FATAL: Database Cog is required by General Cog but was not found/loaded.")
-        raise commands.ExtensionFailed("general", "Setup failed: Database Cog not found.")
-    else:
-        await bot.add_cog(GeneralCog(bot))
-        log.info("General Cog added to bot.")
+async def setup(bot: commands.Bot): # <<< KEEP AS 'setup'
+    # Need DB cog loaded before this, but main.py should handle load order.
+    await bot.add_cog(UnscrambleGeneralCog(bot))
+    log.info("Unscramble General Cog added to bot.")
