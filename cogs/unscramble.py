@@ -27,10 +27,10 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
         self.word_lists = {}  # Dict: {"theme_name": [WORD, ...], ...}
         self.combined_word_list = [] # List: [WORD, ...] (all words from all lists)
         # <<< CHANGE >>> Ensure db_cog is fetched correctly
-        self.db_cog = self.bot.get_cog("Database") # Get it during init
+        self.db_cog = self.bot.get_cog("UnscrambleDB") # Get it during init
 
         if not self.db_cog:
-            log.critical("!!! Database Cog not found during Unscramble init! Leaderboard features disabled. !!!")
+            log.critical("!!! Unscramble Database Cog not found during Unscramble init! Leaderboard features disabled. !!!")
         self._load_words()
         log.info("Unscramble Cog initialized.")
 
@@ -237,9 +237,23 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
         """Starts Unscramble. Args: [rounds] [theme] OR [theme]. Uses default theme/infinite rounds if omitted."""
         channel_id = ctx.channel.id
 
-        if channel_id in self.active_loops:
-            await ctx.send(embed=discord.Embed(title="⏳ Game Already Running", description="A game is already active in this channel.", color=config.EMBED_COLOR_WARNING))
+        # <<< CHANGE >>> Check GLOBAL game state FIRST
+        if hasattr(self.bot, 'active_game_info') and self.bot.active_game_info:
+            game_info = self.bot.active_game_info
+            await ctx.send(embed=discord.Embed(
+                title="⏳ Game Already Running",
+                description=f"Another game (`{game_info.get('game_type', 'unknown')}`) is already active in channel <#{game_info.get('channel_id', 'unknown')}>.",
+                color=config.EMBED_COLOR_WARNING
+            ))
             return
+
+        # Check internal state for this cog (should be redundant if global state is managed properly, but safe)
+        if channel_id in self.active_loops:
+            log.warning(f"Unscramble command in {channel_id} detected loop in active_loops despite global state being clear? Cleaning up.")
+            self.active_loops.pop(channel_id, None) # Clean up stale internal state
+            # Proceed cautiously, maybe still prevent start? For now, let it proceed.
+            # await ctx.send(embed=discord.Embed(title="⏳ Cleanup Occurred", description="Please try starting the game again.", color=config.EMBED_COLOR_WARNING))
+            # return
 
         # --- Argument Parsing Logic ---
         # <<< CHANGE >>> Start Manual Parsing Block
@@ -350,9 +364,16 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
             "active_word_list": active_word_list,
             "theme_name": chosen_theme_name
         }
+        # <<< CHANGE >>> SET GLOBAL game state
+        log.info(f"Setting active_game_info: type=unscramble, channel={channel_id}")
+        self.bot.active_game_info = {
+            'game_type': 'unscramble',
+            'channel_id': channel_id,
+            'cog': self # Reference to this cog instance
+        }
 
-        log.info(f"Starting game loop: Channel {channel_id}, Guild {ctx.guild.id}, Rounds: {'Infinite' if is_infinite else target_rounds}, Theme: '{chosen_theme_name}', Requested by {ctx.author} ({ctx.author.id})")
-        game_loop_task = self.bot.loop.create_task( self._channel_game_loop(ctx, loop_data), name=f"GameLoop-{channel_id}")
+        log.info(f"Starting Unscramble game loop: Channel {channel_id}, Guild {ctx.guild.id}, Rounds: {'Infinite' if is_infinite else target_rounds}, Theme: '{chosen_theme_name}', Requested by {ctx.author} ({ctx.author.id})")
+        game_loop_task = self.bot.loop.create_task( self._channel_game_loop(ctx, loop_data), name=f"UnscrambleLoop-{channel_id}")
         loop_data["loop_task"] = game_loop_task
         self.active_loops[channel_id] = loop_data
 
@@ -532,7 +553,16 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
             try: await ctx.send(embed=discord.Embed(title="💥 Critical Error!", description="The game encountered a critical error and had to stop.", color=config.EMBED_COLOR_ERROR))
             except Exception: pass
         finally:
-            log.info(f"[Loop {channel_id}] Entering final cleanup for game loop.")
+            # <<< CHANGE >>> Ensure global state is cleared on *any* loop exit
+            log.info(f"[Unscramble Loop {loop_data.get('channel_id')}] Entering final cleanup.")
+            # Pop from this cog's internal tracker
+            removed_loop = self.active_loops.pop(loop_data.get('channel_id'), None)
+            # Check and clear global state *if* it matches this game instance
+            if hasattr(self.bot, 'active_game_info') and self.bot.active_game_info.get('channel_id') == loop_data.get('channel_id') and self.bot.active_game_info.get('game_type') == 'unscramble':
+                 log.info(f"[Unscramble Loop {loop_data.get('channel_id')}] Clearing matching global active_game_info.")
+                 self.bot.active_game_info = {}
+            elif hasattr(self.bot, 'active_game_info') and self.bot.active_game_info:
+                 log.warning(f"[Unscramble Loop {loop_data.get('channel_id')}] Loop ending, but global active_game_info did not match or was already clear: {self.bot.active_game_info}")
 
             # <<< CHANGE: Final Leaderboard Display >>>
             try:
@@ -569,7 +599,17 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """Listens for answers and processes the first winner for an active loop."""
+        # <<< CHANGE >>> Add check against GLOBAL game state at the beginning
+        if not hasattr(self.bot, 'active_game_info') or not self.bot.active_game_info:
+             return # No game active globally
+
+        current_game_info = self.bot.active_game_info
+        if current_game_info.get('game_type') != 'unscramble':
+             return # Globally active game is not Unscramble
+
+        if message.channel.id != current_game_info.get('channel_id'):
+             return # Message is not in the active Unscramble game channel
+            
         # Basic checks: ignore self, DMs, commands
         if message.author == self.bot.user or not message.guild or message.content.startswith(config.COMMAND_PREFIX):
             return
@@ -689,11 +729,11 @@ class UnscrambleCog(commands.Cog, name="Unscramble"):
 
 async def setup(bot: commands.Bot):
     # <<< CHANGE >>> Check for DB Cog explicitly at setup
-    db_cog = bot.get_cog("Database")
+    db_cog = bot.get_cog("UnscrambleDB")
     if db_cog is None:
-        log.critical("FATAL: Database Cog is required by Unscramble Cog but was not found/loaded.")
+        log.critical("FATAL: UnscrambleDB Cog is required by Unscramble Cog but was not found/loaded.")
         # Depending on strictness, either raise error or allow cog to load with warnings
-        raise commands.ExtensionFailed("unscramble", "Setup failed: Database Cog not found.")
+        raise commands.ExtensionFailed("unscramble", "Setup failed: UnscrambleDB Cog not found.")
     else:
         await bot.add_cog(UnscrambleCog(bot))
         log.info("Unscramble Cog added to bot.")
