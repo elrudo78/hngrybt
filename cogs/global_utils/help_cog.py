@@ -62,9 +62,6 @@ class HelpCog(commands.Cog, name="Help"):
         embed.add_field(name=f"`{prefix}us_resetlb` (or `us_resetleaderboard`)",
                         value="⚠️ Clears *all* Unscramble scores permanently.", inline=False)
 
-        # --- General Commands Section ---
-        # We only have the global help command itself here for now
-        embed.add_field(name="--- General Commands ---", value="\u200b", inline=False) # Zero-width space for spacing
         embed.add_field(name=f"`{prefix}help` (or `h`, `commands`)",
                         value="Shows the initial game selection help menu.", inline=False) # Updated description
 
@@ -88,10 +85,11 @@ class HelpCog(commands.Cog, name="Help"):
     # --- Main Interactive Help Command ---
     @commands.command(name='help', aliases=['h', 'commands'])
     @commands.guild_only()
+    @commands.has_role(config.MOD_ROLE_NAME) # <<< ADD THIS DECORATOR
     async def help_command(self, ctx: commands.Context):
-        """Shows an interactive help menu to select a game."""
+        """Shows an interactive help menu to select a game (Requires Mod Role)."""
 
-        log.info(f"Interactive help started by {ctx.author} in guild {ctx.guild.id}.")
+        log.info(f"Interactive help started by MOD {ctx.author} in guild {ctx.guild.id}.")
 
         # Define available games and map input number to the function that generates its help embed
         # IMPORTANT: Update this mapping when adding new games
