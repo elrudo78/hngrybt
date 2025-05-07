@@ -14,7 +14,7 @@ MOD_ROLE_NAME = "bot admin" # Role required for restricted commands
 # --- Unscramble Game Settings ---
 # <<< CHANGE >>> Define folder instead of file, and default behavior
 WORDS_FOLDER = "data/wordlists"  # Folder containing .txt word lists
-DEFAULT_THEME_NAME = "foods"     # If no theme specified, use this (filename without .txt)
+DEFAULT_THEME_NAME = "general"     # If no theme specified, use this (filename without .txt)
 # Set DEFAULT_THEME_NAME to None to use a mix of all lists if no theme is chosen
 UNSCRAMBLE_TIME_LIMIT_SECONDS = 60
 STUCK_GAME_TIMEOUT_SECONDS = 300
